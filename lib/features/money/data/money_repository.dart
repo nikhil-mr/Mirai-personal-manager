@@ -205,6 +205,34 @@ class MoneyRepository {
         ),
       );
 
+  Future<bool> isCategoryUsed(String categoryId) async {
+    final count = await (db.select(
+      db.moneyTransactions,
+    )..where((t) => t.categoryId.equals(categoryId))).get();
+    return count.isNotEmpty;
+  }
+
+  Future<void> deleteCategory(String categoryId) async {
+    await (db.delete(
+      db.moneyCategories,
+    )..where((c) => c.id.equals(categoryId))).go();
+  }
+
+  Future<bool> categoryNameExists(
+    String name,
+    String type, {
+    String? excludeId,
+  }) async {
+    final cleanName = name.trim().toLowerCase();
+    final categories = await db.select(db.moneyCategories).get();
+    return categories.any(
+      (c) =>
+          c.type == type &&
+          c.id != excludeId &&
+          c.name.trim().toLowerCase() == cleanName,
+    );
+  }
+
   Future<void> saveTransaction({
     String? id,
     required MoneyType type,

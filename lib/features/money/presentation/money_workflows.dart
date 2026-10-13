@@ -14,6 +14,7 @@ import '../application/money_providers.dart';
 import '../data/money_database.dart';
 import '../domain/money_models.dart';
 import 'money_excel_workflows.dart';
+import 'calculator_screen.dart';
 import '../../today/application/dashboard_providers.dart';
 
 class TransactionFormScreen extends ConsumerStatefulWidget {
@@ -54,8 +55,14 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+
     final accounts =
         ref.watch(moneyActiveAccountsProvider).value ?? const <MoneyAccount>[];
+    final balances =
+        ref.watch(moneyBalancesProvider).value ?? const <String, int>{};
+
     if (widget.transactionId != null && !_loadedExisting) {
       final existing = ref
           .watch(moneyTransactionsProvider)
@@ -73,6 +80,11 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
         _occurredAt = existing.occurredAt;
       }
     }
+
+    if (_accountId == null && accounts.isNotEmpty) {
+      _accountId = accounts.first.id;
+    }
+
     final categories =
         (_type == MoneyType.income
                 ? ref.watch(moneyIncomeCategoriesProvider).value ??
@@ -81,10 +93,15 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                       const <MoneyCategory>[])
             .where((category) => category.archivedAt == null)
             .toList();
+
     return Scaffold(
+      backgroundColor: isDark
+          ? AppColors.darkBackground
+          : AppColors.lightBackground,
       appBar: AppBar(
         title: Text(
           widget.transactionId == null ? 'Add transaction' : 'Edit transaction',
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
       body: SafeArea(
@@ -93,169 +110,682 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
           child: ListView(
             padding: const EdgeInsets.all(20),
             children: [
-              SegmentedButton<MoneyType>(
-                segments: const [
-                  ButtonSegment(
-                    value: MoneyType.expense,
-                    label: Text('Expense'),
-                    icon: Icon(Icons.north_east),
-                  ),
-                  ButtonSegment(
-                    value: MoneyType.income,
-                    label: Text('Income'),
-                    icon: Icon(Icons.south_west),
-                  ),
-                  ButtonSegment(
-                    value: MoneyType.transfer,
-                    label: Text('Transfer'),
-                    icon: Icon(Icons.swap_horiz),
-                  ),
-                ],
-                selected: {_type},
-                onSelectionChanged: _saving
-                    ? null
-                    : (selection) => setState(() {
-                        _type = selection.first;
-                        _categoryId = null;
-                      }),
-              ),
-              const SizedBox(height: 18),
-              TextFormField(
-                controller: _amount,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]')),
-                ],
-                decoration: const InputDecoration(
-                  labelText: 'Amount',
-                  prefixText: '₹ ',
-                  hintText: '0.00',
-                ),
-                validator: (value) {
-                  final amount = parseMinorUnits(value ?? '');
-                  return amount == null || amount <= 0
-                      ? 'Enter an amount greater than zero (up to 2 decimal places).'
-                      : null;
-                },
-              ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue:
-                    accounts.any((account) => account.id == _accountId)
-                    ? _accountId
-                    : null,
-                decoration: InputDecoration(
-                  labelText: _type == MoneyType.transfer
-                      ? 'From account'
-                      : 'Account',
-                ),
-                items: accounts
-                    .map(
-                      (a) => DropdownMenuItem(value: a.id, child: Text(a.name)),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _accountId = v),
-                validator: (v) => v == null ? 'Choose an account.' : null,
-              ),
-              if (_type == MoneyType.transfer) ...[
-                const SizedBox(height: 14),
-                DropdownButtonFormField<String>(
-                  initialValue:
-                      accounts.any((account) => account.id == _destinationId)
-                      ? _destinationId
-                      : null,
-                  decoration: const InputDecoration(labelText: 'To account'),
-                  items: accounts
-                      .where((a) => a.id != _accountId)
-                      .map(
-                        (a) =>
-                            DropdownMenuItem(value: a.id, child: Text(a.name)),
-                      )
-                      .toList(),
-                  onChanged: (v) => setState(() => _destinationId = v),
-                  validator: (v) => v == null || v == _accountId
-                      ? 'Choose a different destination account.'
-                      : null,
-                ),
-              ] else ...[
-                const SizedBox(height: 14),
-                DropdownButtonFormField<String>(
-                  initialValue: categories.any((c) => c.id == _categoryId)
-                      ? _categoryId
-                      : null,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                  items: categories
-                      .map(
-                        (c) =>
-                            DropdownMenuItem(value: c.id, child: Text(c.name)),
-                      )
-                      .toList(),
-                  onChanged: (v) => setState(() => _categoryId = v),
-                  validator: (v) => v == null ? 'Choose a category.' : null,
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => CategoryManagementScreen(
-                            type: _type == MoneyType.income
-                                ? 'income'
-                                : 'expense',
-                          ),
-                        ),
-                      );
-                      if (mounted) setState(() {});
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Manage categories'),
-                  ),
-                ),
+              _buildTypeSelector(isDark, borderColor),
+              const SizedBox(height: 20),
+              _buildAmountAndCalculator(isDark, borderColor),
+              const SizedBox(height: 20),
+              _buildAccountSelectors(accounts, balances, isDark, borderColor),
+              const SizedBox(height: 20),
+              if (_type != MoneyType.transfer) ...[
+                _buildCategoryGrid(categories, isDark, borderColor),
+                const SizedBox(height: 20),
               ],
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.event_outlined),
-                title: const Text('Date and time'),
-                subtitle: Text(
-                  DateFormat.yMMMMd().add_jm().format(_occurredAt),
-                ),
-                trailing: const Icon(Icons.edit_calendar_outlined),
-                onTap: _pickDateTime,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _note,
-                maxLength: 240,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Note (optional)',
-                  hintText: 'What was this for?',
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (accounts.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: Text('Create an account before adding transactions.'),
-                ),
-              FilledButton.icon(
-                onPressed: _saving || accounts.isEmpty ? null : _save,
-                icon: _saving
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.check),
-                label: Text(_saving ? 'Saving…' : 'Save transaction'),
+              _buildDateTimePicker(isDark, borderColor),
+              const SizedBox(height: 20),
+              _buildNotesAndSaveButton(
+                isDark,
+                borderColor,
+                accounts.isNotEmpty,
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTypeSelector(bool isDark, Color borderColor) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: 2),
+        boxShadow: !isDark
+            ? const [
+                BoxShadow(color: AppColors.lightText, offset: Offset(3, 3)),
+              ]
+            : null,
+      ),
+      child: Row(
+        children: [
+          for (final type in [
+            MoneyType.expense,
+            MoneyType.income,
+            MoneyType.transfer,
+          ])
+            Expanded(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: _saving
+                    ? null
+                    : () => setState(() {
+                        _type = type;
+                        _categoryId = null;
+                      }),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _type == type ? AppColors.brand : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    border: _type == type
+                        ? Border.all(color: AppColors.lightText, width: 2)
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_type == type) ...[
+                        const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: AppColors.lightText,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        type.name[0].toUpperCase() + type.name.substring(1),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: _type == type
+                              ? AppColors.lightText
+                              : (isDark
+                                    ? AppColors.darkText
+                                    : AppColors.lightText),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAmountAndCalculator(bool isDark, Color borderColor) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: TextFormField(
+            controller: _amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]')),
+            ],
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              labelText: 'Amount',
+              prefixText: '₹ ',
+              prefixStyle: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+              hintText: '0.00',
+              filled: true,
+              fillColor: Theme.of(context).cardColor,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: isDark ? AppColors.darkText : AppColors.lightText,
+                  width: 2,
+                ),
+              ),
+            ),
+            validator: (value) {
+              final amount = parseMinorUnits(value ?? '');
+              return amount == null || amount <= 0
+                  ? 'Enter an amount greater than zero.'
+                  : null;
+            },
+          ),
+        ),
+        const SizedBox(width: 12),
+        Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: !isDark
+                ? const [
+                    BoxShadow(color: AppColors.lightText, offset: Offset(3, 3)),
+                  ]
+                : null,
+          ),
+          child: Material(
+            color: AppColors.brand,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () async {
+                final result = await Navigator.of(context).push<String>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        CalculatorScreen(initialValue: _amount.text),
+                  ),
+                );
+                if (result != null && mounted) {
+                  setState(() {
+                    _amount.text = result;
+                  });
+                }
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.lightText, width: 2),
+                ),
+                child: const Icon(
+                  Icons.calculate,
+                  color: AppColors.lightText,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAccountSelectors(
+    List<MoneyAccount> accounts,
+    Map<String, int> balances,
+    bool isDark,
+    Color borderColor,
+  ) {
+    if (_type == MoneyType.transfer) {
+      final outgoingBalance = _accountId != null ? balances[_accountId] : null;
+      final incomingBalance = _destinationId != null
+          ? balances[_destinationId]
+          : null;
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DropdownButtonFormField<String>(
+            initialValue: accounts.any((a) => a.id == _accountId)
+                ? _accountId
+                : null,
+            decoration: InputDecoration(
+              labelText: 'From account',
+              filled: true,
+              fillColor: Theme.of(context).cardColor,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: isDark ? AppColors.darkText : AppColors.lightText,
+                  width: 2,
+                ),
+              ),
+            ),
+            items: accounts
+                .map((a) => DropdownMenuItem(value: a.id, child: Text(a.name)))
+                .toList(),
+            onChanged: (v) => setState(() => _accountId = v),
+            validator: (v) => v == null ? 'Choose outgoing account.' : null,
+          ),
+          if (outgoingBalance != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Available balance: ${formatMinorUnits(outgoingBalance)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark
+                    ? AppColors.darkSecondaryText
+                    : AppColors.lightSecondaryText,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            initialValue: accounts.any((a) => a.id == _destinationId)
+                ? _destinationId
+                : null,
+            decoration: InputDecoration(
+              labelText: 'To account',
+              filled: true,
+              fillColor: Theme.of(context).cardColor,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: isDark ? AppColors.darkText : AppColors.lightText,
+                  width: 2,
+                ),
+              ),
+            ),
+            items: accounts
+                .where((a) => a.id != _accountId)
+                .map((a) => DropdownMenuItem(value: a.id, child: Text(a.name)))
+                .toList(),
+            onChanged: (v) => setState(() => _destinationId = v),
+            validator: (v) => v == null || v == _accountId
+                ? 'Choose a different destination account.'
+                : null,
+          ),
+          if (incomingBalance != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Current balance: ${formatMinorUnits(incomingBalance)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark
+                    ? AppColors.darkSecondaryText
+                    : AppColors.lightSecondaryText,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ],
+      );
+    } else {
+      final accountBalance = _accountId != null ? balances[_accountId] : null;
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          DropdownButtonFormField<String>(
+            initialValue: accounts.any((a) => a.id == _accountId)
+                ? _accountId
+                : null,
+            decoration: InputDecoration(
+              labelText: 'Account',
+              filled: true,
+              fillColor: Theme.of(context).cardColor,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: borderColor, width: 2),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: isDark ? AppColors.darkText : AppColors.lightText,
+                  width: 2,
+                ),
+              ),
+            ),
+            items: accounts
+                .map((a) => DropdownMenuItem(value: a.id, child: Text(a.name)))
+                .toList(),
+            onChanged: (v) => setState(() => _accountId = v),
+            validator: (v) => v == null ? 'Choose an account.' : null,
+          ),
+          if (accountBalance != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Available balance: ${formatMinorUnits(accountBalance)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark
+                    ? AppColors.darkSecondaryText
+                    : AppColors.lightSecondaryText,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+  }
+
+  Widget _buildCategoryGrid(
+    List<MoneyCategory> categories,
+    bool isDark,
+    Color borderColor,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Category',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            TextButton.icon(
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CategoryManagementScreen(
+                      type: _type == MoneyType.income ? 'income' : 'expense',
+                    ),
+                  ),
+                );
+                if (mounted) setState(() {});
+              },
+              icon: const Icon(Icons.settings_outlined, size: 18),
+              label: const Text('Manage categories'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (categories.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16.0),
+            child: Text(
+              'No categories available. Add one using Manage Categories.',
+              style: TextStyle(
+                color: isDark
+                    ? AppColors.darkSecondaryText
+                    : AppColors.lightSecondaryText,
+              ),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: categories.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 0.85,
+            ),
+            itemBuilder: (context, index) {
+              final cat = categories[index];
+              final isSelected = _categoryId == cat.id;
+
+              final (tileColor, iconColor) = _categoryStyle(cat, isDark);
+              final circleColor = isDark
+                  ? const Color(0xFF2C2C2C)
+                  : const Color(0xFFFFFFFF);
+              final labelColor = isDark
+                  ? AppColors.darkText
+                  : const Color(0xFF111111);
+
+              return Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: isSelected && !isDark
+                      ? const [
+                          BoxShadow(
+                            color: AppColors.lightText,
+                            offset: Offset(3, 3),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Material(
+                  color: tileColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(
+                      color: isSelected
+                          ? (isDark ? AppColors.brand : AppColors.lightText)
+                          : borderColor,
+                      width: isSelected ? 3 : 2,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => setState(() => _categoryId = cat.id),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: circleColor,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            moneyIconForCodePoint(cat.iconCodePoint),
+                            color: iconColor,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                          child: Text(
+                            cat.name,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: labelColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  (Color tileColor, Color iconColor) _categoryStyle(
+    MoneyCategory cat,
+    bool isDark,
+  ) {
+    final name = cat.name.trim().toLowerCase();
+
+    Color? bg;
+    Color? icon;
+
+    switch (name) {
+      case 'bills':
+        bg = const Color(0xFFE5C9FF);
+        icon = const Color(0xFF8E44AD);
+      case 'education':
+        bg = const Color(0xFFBFE0FF);
+        icon = const Color(0xFF2476C5);
+      case 'entertainment':
+        bg = const Color(0xFFFFC5D8);
+        icon = const Color(0xFFD93670);
+      case 'food':
+      case 'cafe':
+        bg = const Color(0xFFFFD0AE);
+        icon = const Color(0xFFE8752D);
+      case 'fuel':
+        bg = const Color(0xFFFFD49A);
+        icon = const Color(0xFFBD7417);
+      case 'groceries':
+        bg = const Color(0xFFAEEBDD);
+        icon = const Color(0xFF168F78);
+      case 'health':
+      case 'hygiene':
+      case 'self':
+        bg = const Color(0xFFB5E8D4);
+        icon = const Color(0xFF188D69);
+      case 'other':
+        bg = const Color(0xFFD7DEDE);
+        icon = const Color(0xFF596B68);
+      case 'rent':
+      case 'home':
+        bg = const Color(0xFFFFE1A3);
+        icon = const Color(0xFFB88927);
+      case 'shopping':
+      case 'gifts':
+        bg = const Color(0xFFC9D4FF);
+        icon = const Color(0xFF5269C7);
+      case 'travel':
+      case 'transportation':
+        bg = const Color(0xFFB8D9FF);
+        icon = const Color(0xFF347BC1);
+    }
+
+    final baseAccent = icon ?? Color(cat.colorValue);
+
+    if (isDark) {
+      final darkTile = Color.lerp(AppColors.darkCard, baseAccent, 0.35)!;
+      return (darkTile, baseAccent);
+    } else {
+      final lightTile =
+          bg ?? Color.lerp(const Color(0xFFFFFFFF), baseAccent, 0.35)!;
+      return (lightTile, baseAccent);
+    }
+  }
+
+  Widget _buildDateTimePicker(bool isDark, Color borderColor) {
+    return BrutalCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: InkWell(
+        onTap: _pickDateTime,
+        child: Row(
+          children: [
+            const Icon(Icons.event, color: AppColors.brand),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Date & Time',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    DateFormat.yMMMMd().add_jm().format(_occurredAt),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.edit_calendar, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotesAndSaveButton(
+    bool isDark,
+    Color borderColor,
+    bool hasAccounts,
+  ) {
+    return Column(
+      children: [
+        TextFormField(
+          controller: _note,
+          maxLength: 240,
+          maxLines: 2,
+          decoration: InputDecoration(
+            labelText: 'Note (optional)',
+            hintText: 'What was this for?',
+            filled: true,
+            fillColor: Theme.of(context).cardColor,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: borderColor, width: 2),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: borderColor, width: 2),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: isDark ? AppColors.darkText : AppColors.lightText,
+                width: 2,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (!hasAccounts)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Create an account before adding transactions.',
+              style: TextStyle(color: AppColors.warning),
+            ),
+          ),
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: !isDark
+                  ? const [
+                      BoxShadow(
+                        color: AppColors.lightText,
+                        offset: Offset(4, 4),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.brand,
+                foregroundColor: AppColors.lightText,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: borderColor, width: 2),
+                ),
+              ),
+              onPressed: _saving || !hasAccounts ? null : _save,
+              icon: _saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.lightText,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.check,
+                      color: AppColors.lightText,
+                      size: 24,
+                    ),
+              label: Text(
+                _saving ? 'Saving…' : 'Save transaction',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.lightText,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -286,6 +816,12 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_type != MoneyType.transfer && _categoryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a category.')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       await ref
@@ -303,8 +839,14 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
             note: _note.text,
           );
       ref.invalidate(moneyBalancesProvider);
+      ref.invalidate(moneyTransactionsProvider);
       ref.invalidate(todayDashboardSnapshotProvider);
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Transaction saved successfully!')),
+        );
+        Navigator.of(context).pop();
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -803,74 +1345,254 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
   }
 }
 
-class CategoryManagementScreen extends ConsumerWidget {
+class CategoryManagementScreen extends ConsumerStatefulWidget {
   const CategoryManagementScreen({required this.type, super.key});
   final String type;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final provider = type == 'income'
+  ConsumerState<CategoryManagementScreen> createState() =>
+      _CategoryManagementScreenState();
+}
+
+class _CategoryManagementScreenState
+    extends ConsumerState<CategoryManagementScreen> {
+  late String _activeType;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeType = widget.type;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+
+    final provider = _activeType == 'income'
         ? moneyIncomeCategoriesProvider
         : moneyExpensesCategoriesProvider;
     final rows = ref.watch(provider);
+
     return Scaffold(
+      backgroundColor: isDark
+          ? AppColors.darkBackground
+          : AppColors.lightBackground,
       appBar: AppBar(
-        title: Text('${type == 'income' ? 'Income' : 'Expense'} categories'),
+        title: const Text(
+          'Manage Categories',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
-            onPressed: () => _editCategory(context, ref, type),
+            tooltip: 'Add Category',
+            onPressed: () => _editCategory(context, ref, _activeType),
             icon: const Icon(Icons.add),
           ),
         ],
       ),
-      body: rows.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Could not load categories: $e')),
-        data: (categories) => ListView(
-          padding: const EdgeInsets.all(16),
+      body: SafeArea(
+        child: Column(
           children: [
-            for (final category in categories)
-              Card(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Color(category.colorValue),
-                    child: Icon(moneyIconForCodePoint(category.iconCodePoint)),
-                  ),
-                  title: Text(category.name),
-                  subtitle: Text(
-                    category.archivedAt != null
-                        ? 'Archived'
-                        : category.isDefault
-                        ? 'Default'
-                        : 'Custom',
-                  ),
-                  trailing: Wrap(
-                    children: [
-                      if (category.archivedAt == null)
-                        IconButton(
-                          tooltip: 'Rename',
-                          onPressed: () =>
-                              _editCategory(context, ref, type, category),
-                          icon: const Icon(Icons.edit_outlined),
-                        ),
-                      TextButton(
-                        onPressed: () => ref
-                            .read(moneyRepositoryProvider)
-                            .archiveCategory(
-                              category.id,
-                              archive: category.archivedAt == null,
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: borderColor, width: 2),
+                ),
+                child: Row(
+                  children: [
+                    for (final t in ['expense', 'income'])
+                      Expanded(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => setState(() => _activeType = t),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _activeType == t
+                                  ? AppColors.brand
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                        child: Text(
-                          category.archivedAt == null ? 'Archive' : 'Restore',
+                            alignment: Alignment.center,
+                            child: Text(
+                              t == 'expense' ? 'Expense' : 'Income',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: _activeType == t
+                                    ? AppColors.lightText
+                                    : (isDark
+                                          ? AppColors.darkText
+                                          : AppColors.lightText),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
+            ),
+            Expanded(
+              child: rows.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) =>
+                    Center(child: Text('Could not load categories: $e')),
+                data: (categories) => categories.isEmpty
+                    ? const EmptyState(
+                        icon: Icons.category_outlined,
+                        title: 'No categories',
+                        message: 'Tap + to add a category.',
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        itemCount: categories.length,
+                        itemBuilder: (context, index) {
+                          final category = categories[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: BrutalCard(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: Color(category.colorValue),
+                                    child: Icon(
+                                      moneyIconForCodePoint(
+                                        category.iconCodePoint,
+                                      ),
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          category.name,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          category.archivedAt != null
+                                              ? 'Archived'
+                                              : category.isDefault
+                                              ? 'Default'
+                                              : 'Custom',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: isDark
+                                                ? AppColors.darkSecondaryText
+                                                : AppColors.lightSecondaryText,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (category.archivedAt == null)
+                                    IconButton(
+                                      tooltip: 'Edit',
+                                      onPressed: () => _editCategory(
+                                        context,
+                                        ref,
+                                        _activeType,
+                                        category,
+                                      ),
+                                      icon: const Icon(Icons.edit_outlined),
+                                    ),
+                                  IconButton(
+                                    tooltip: category.archivedAt == null
+                                        ? 'Delete'
+                                        : 'Restore',
+                                    onPressed: () => _deleteOrArchiveCategory(
+                                      context,
+                                      ref,
+                                      category,
+                                    ),
+                                    icon: Icon(
+                                      category.archivedAt == null
+                                          ? Icons.delete_outline
+                                          : Icons.restore,
+                                      color: category.archivedAt == null
+                                          ? AppColors.error
+                                          : AppColors.success,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+}
+
+Future<void> _deleteOrArchiveCategory(
+  BuildContext context,
+  WidgetRef ref,
+  MoneyCategory category,
+) async {
+  final repository = ref.read(moneyRepositoryProvider);
+  final isUsed = await repository.isCategoryUsed(category.id);
+
+  if (!context.mounted) return;
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('Delete "${category.name}"?'),
+      content: Text(
+        isUsed
+            ? 'This category is used in existing transactions. It will be archived so historical records remain intact.'
+            : 'Are you sure you want to permanently delete this category?',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: isUsed ? AppColors.warning : AppColors.error,
+          ),
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: Text(isUsed ? 'Archive' : 'Delete permanently'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed == true) {
+    if (isUsed || category.archivedAt != null) {
+      await repository.archiveCategory(
+        category.id,
+        archive: category.archivedAt == null,
+      );
+    } else {
+      await repository.deleteCategory(category.id);
+    }
+    ref.invalidate(moneyExpensesCategoriesProvider);
+    ref.invalidate(moneyIncomeCategoriesProvider);
   }
 }
 
@@ -880,17 +1602,25 @@ Future<void> _editCategory(
   String type, [
   MoneyCategory? category,
 ]) async {
-  final name = TextEditingController(text: category?.name ?? '');
+  final nameController = TextEditingController(text: category?.name ?? '');
   final formKey = GlobalKey<FormState>();
+
   const colors = [
     AppColors.brand,
+    AppColors.orange,
+    AppColors.success,
+    AppColors.blue,
+    AppColors.accent,
+    AppColors.pink,
     Color(0xFF6488B8),
     Color(0xFFB67527),
     Color(0xFF8B6F9E),
+    Color(0xFF4D9B83),
   ];
+
   const icons = [
-    Icons.label_outline,
     Icons.restaurant_outlined,
+    Icons.shopping_cart_outlined,
     Icons.shopping_bag_outlined,
     Icons.directions_bus_outlined,
     Icons.local_gas_station_outlined,
@@ -899,64 +1629,122 @@ Future<void> _editCategory(
     Icons.school_outlined,
     Icons.home_outlined,
     Icons.work_outline,
+    Icons.payments_outlined,
+    Icons.account_balance_outlined,
+    Icons.label_outline,
   ];
-  var color = category?.colorValue ?? colors.first.toARGB32();
-  var iconCode = category?.iconCodePoint ?? icons.first.codePoint;
+
+  var selectedColor = category?.colorValue ?? colors.first.toARGB32();
+  var selectedIconCode = category?.iconCodePoint ?? icons.first.codePoint;
+  String? duplicateError;
+
   final saved = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (dialogContext, setState) {
         return AlertDialog(
-          title: Text(category == null ? 'New category' : 'Rename category'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: name,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? 'Enter a name.' : null,
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final c in colors)
-                      InkWell(
-                        onTap: () => setState(() => color = c.toARGB32()),
-                        child: CircleAvatar(
-                          backgroundColor: c,
-                          child: color == c.toARGB32()
-                              ? const Icon(Icons.check, color: Colors.white)
-                              : null,
+          title: Text(
+            category == null ? 'New Category' : 'Edit Category',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: 'Name',
+                      errorText: duplicateError,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) {
+                      if (duplicateError != null) {
+                        setState(() => duplicateError = null);
+                      }
+                    },
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty)
+                        return 'Enter a category name.';
+                      if (v.trim().length > 60)
+                        return 'Name must be under 60 characters.';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Color',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final c in colors)
+                        InkWell(
+                          onTap: () =>
+                              setState(() => selectedColor = c.toARGB32()),
+                          child: CircleAvatar(
+                            backgroundColor: c,
+                            radius: 18,
+                            child: selectedColor == c.toARGB32()
+                                ? const Icon(
+                                    Icons.check,
+                                    color: Colors.white,
+                                    size: 20,
+                                  )
+                                : null,
+                          ),
                         ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final icon in icons)
-                      IconButton.filledTonal(
-                        tooltip: 'Choose category icon',
-                        onPressed: () =>
-                            setState(() => iconCode = icon.codePoint),
-                        icon: Icon(icon),
-                        style: IconButton.styleFrom(
-                          backgroundColor: iconCode == icon.codePoint
-                              ? Theme.of(dialogContext)
-                                    .colorScheme
-                                    .primaryContainer
-                              : null,
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Icon',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final icon in icons)
+                        InkWell(
+                          onTap: () =>
+                              setState(() => selectedIconCode = icon.codePoint),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: selectedIconCode == icon.codePoint
+                                  ? AppColors.brand
+                                  : Theme.of(dialogContext).cardColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selectedIconCode == icon.codePoint
+                                    ? AppColors.lightText
+                                    : Colors.grey,
+                                width: selectedIconCode == icon.codePoint
+                                    ? 2
+                                    : 1,
+                              ),
+                            ),
+                            child: Icon(
+                              icon,
+                              size: 20,
+                              color: AppColors.lightText,
+                            ),
+                          ),
                         ),
-                      ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -965,30 +1753,56 @@ Future<void> _editCategory(
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.brand,
+                foregroundColor: AppColors.lightText,
+              ),
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+
+                final repository = ref.read(moneyRepositoryProvider);
+                final exists = await repository.categoryNameExists(
+                  nameController.text,
+                  type,
+                  excludeId: category?.id,
+                );
+
+                if (exists) {
+                  setState(
+                    () => duplicateError =
+                        'A category with this name already exists.',
+                  );
+                  return;
+                }
+
+                if (dialogContext.mounted) {
                   Navigator.pop(dialogContext, true);
                 }
               },
-              child: const Text('Save'),
+              child: const Text(
+                'Save',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         );
       },
     ),
   );
+
   if (saved == true) {
     await ref
         .read(moneyRepositoryProvider)
         .saveCategory(
           id: category?.id,
-          name: name.text,
+          name: nameController.text,
           type: type,
-          icon: iconCode,
-          color: color,
+          icon: selectedIconCode,
+          color: selectedColor,
         );
+    ref.invalidate(moneyExpensesCategoriesProvider);
+    ref.invalidate(moneyIncomeCategoriesProvider);
   }
-  name.dispose();
 }
 
 class TransactionHistoryScreen extends ConsumerStatefulWidget {
