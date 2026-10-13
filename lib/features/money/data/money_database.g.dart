@@ -105,6 +105,21 @@ class $MoneyAccountsTable extends MoneyAccounts
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _isPrimaryMeta = const VerificationMeta(
+    'isPrimary',
+  );
+  @override
+  late final GeneratedColumn<bool> isPrimary = GeneratedColumn<bool>(
+    'is_primary',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_primary" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -116,6 +131,7 @@ class $MoneyAccountsTable extends MoneyAccounts
     createdAt,
     updatedAt,
     archivedAt,
+    isPrimary,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -198,6 +214,12 @@ class $MoneyAccountsTable extends MoneyAccounts
         archivedAt.isAcceptableOrUnknown(data['archived_at']!, _archivedAtMeta),
       );
     }
+    if (data.containsKey('is_primary')) {
+      context.handle(
+        _isPrimaryMeta,
+        isPrimary.isAcceptableOrUnknown(data['is_primary']!, _isPrimaryMeta),
+      );
+    }
     return context;
   }
 
@@ -243,6 +265,10 @@ class $MoneyAccountsTable extends MoneyAccounts
         DriftSqlType.dateTime,
         data['${effectivePrefix}archived_at'],
       ),
+      isPrimary: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_primary'],
+      )!,
     );
   }
 
@@ -262,6 +288,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? archivedAt;
+  final bool isPrimary;
   const MoneyAccount({
     required this.id,
     required this.name,
@@ -272,6 +299,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
     required this.createdAt,
     required this.updatedAt,
     this.archivedAt,
+    required this.isPrimary,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -291,6 +319,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
     if (!nullToAbsent || archivedAt != null) {
       map['archived_at'] = Variable<DateTime>(archivedAt);
     }
+    map['is_primary'] = Variable<bool>(isPrimary);
     return map;
   }
 
@@ -311,6 +340,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
       archivedAt: archivedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(archivedAt),
+      isPrimary: Value(isPrimary),
     );
   }
 
@@ -331,6 +361,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       archivedAt: serializer.fromJson<DateTime?>(json['archivedAt']),
+      isPrimary: serializer.fromJson<bool>(json['isPrimary']),
     );
   }
   @override
@@ -346,6 +377,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'archivedAt': serializer.toJson<DateTime?>(archivedAt),
+      'isPrimary': serializer.toJson<bool>(isPrimary),
     };
   }
 
@@ -359,6 +391,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<DateTime?> archivedAt = const Value.absent(),
+    bool? isPrimary,
   }) => MoneyAccount(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -371,6 +404,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     archivedAt: archivedAt.present ? archivedAt.value : this.archivedAt,
+    isPrimary: isPrimary ?? this.isPrimary,
   );
   MoneyAccount copyWithCompanion(MoneyAccountsCompanion data) {
     return MoneyAccount(
@@ -391,6 +425,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
       archivedAt: data.archivedAt.present
           ? data.archivedAt.value
           : this.archivedAt,
+      isPrimary: data.isPrimary.present ? data.isPrimary.value : this.isPrimary,
     );
   }
 
@@ -405,7 +440,8 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
           ..write('colorValue: $colorValue, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('archivedAt: $archivedAt')
+          ..write('archivedAt: $archivedAt, ')
+          ..write('isPrimary: $isPrimary')
           ..write(')'))
         .toString();
   }
@@ -421,6 +457,7 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
     createdAt,
     updatedAt,
     archivedAt,
+    isPrimary,
   );
   @override
   bool operator ==(Object other) =>
@@ -434,7 +471,8 @@ class MoneyAccount extends DataClass implements Insertable<MoneyAccount> {
           other.colorValue == this.colorValue &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
-          other.archivedAt == this.archivedAt);
+          other.archivedAt == this.archivedAt &&
+          other.isPrimary == this.isPrimary);
 }
 
 class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
@@ -447,6 +485,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> archivedAt;
+  final Value<bool> isPrimary;
   final Value<int> rowid;
   const MoneyAccountsCompanion({
     this.id = const Value.absent(),
@@ -458,6 +497,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.archivedAt = const Value.absent(),
+    this.isPrimary = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MoneyAccountsCompanion.insert({
@@ -470,6 +510,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
     required DateTime createdAt,
     required DateTime updatedAt,
     this.archivedAt = const Value.absent(),
+    this.isPrimary = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -487,6 +528,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? archivedAt,
+    Expression<bool>? isPrimary,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -500,6 +542,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (archivedAt != null) 'archived_at': archivedAt,
+      if (isPrimary != null) 'is_primary': isPrimary,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -514,6 +557,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? archivedAt,
+    Value<bool>? isPrimary,
     Value<int>? rowid,
   }) {
     return MoneyAccountsCompanion(
@@ -526,6 +570,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       archivedAt: archivedAt ?? this.archivedAt,
+      isPrimary: isPrimary ?? this.isPrimary,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -560,6 +605,9 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
     if (archivedAt.present) {
       map['archived_at'] = Variable<DateTime>(archivedAt.value);
     }
+    if (isPrimary.present) {
+      map['is_primary'] = Variable<bool>(isPrimary.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -578,6 +626,7 @@ class MoneyAccountsCompanion extends UpdateCompanion<MoneyAccount> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('archivedAt: $archivedAt, ')
+          ..write('isPrimary: $isPrimary, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -10436,6 +10485,7 @@ typedef $$MoneyAccountsTableCreateCompanionBuilder =
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<DateTime?> archivedAt,
+      Value<bool> isPrimary,
       Value<int> rowid,
     });
 typedef $$MoneyAccountsTableUpdateCompanionBuilder =
@@ -10449,6 +10499,7 @@ typedef $$MoneyAccountsTableUpdateCompanionBuilder =
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<DateTime?> archivedAt,
+      Value<bool> isPrimary,
       Value<int> rowid,
     });
 
@@ -10585,6 +10636,11 @@ class $$MoneyAccountsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<bool> get isPrimary => $composableBuilder(
+    column: $table.isPrimary,
+    builder: (column) => ColumnFilters(column),
+  );
+
   Expression<bool> accountBalanceAdjustmentsRefs(
     Expression<bool> Function($$AccountBalanceAdjustmentsTableFilterComposer f)
     f,
@@ -10716,6 +10772,11 @@ class $$MoneyAccountsTableOrderingComposer
     column: $table.archivedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get isPrimary => $composableBuilder(
+    column: $table.isPrimary,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MoneyAccountsTableAnnotationComposer
@@ -10761,6 +10822,9 @@ class $$MoneyAccountsTableAnnotationComposer
     column: $table.archivedAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<bool> get isPrimary =>
+      $composableBuilder(column: $table.isPrimary, builder: (column) => column);
 
   Expression<T> accountBalanceAdjustmentsRefs<T extends Object>(
     Expression<T> Function($$AccountBalanceAdjustmentsTableAnnotationComposer a)
@@ -10885,6 +10949,7 @@ class $$MoneyAccountsTableTableManager
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
+                Value<bool> isPrimary = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MoneyAccountsCompanion(
                 id: id,
@@ -10896,6 +10961,7 @@ class $$MoneyAccountsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 archivedAt: archivedAt,
+                isPrimary: isPrimary,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -10909,6 +10975,7 @@ class $$MoneyAccountsTableTableManager
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<DateTime?> archivedAt = const Value.absent(),
+                Value<bool> isPrimary = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MoneyAccountsCompanion.insert(
                 id: id,
@@ -10920,6 +10987,7 @@ class $$MoneyAccountsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 archivedAt: archivedAt,
+                isPrimary: isPrimary,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

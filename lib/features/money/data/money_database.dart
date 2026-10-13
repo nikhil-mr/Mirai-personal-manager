@@ -13,6 +13,7 @@ class MoneyAccounts extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
   DateTimeColumn get archivedAt => dateTime().nullable()();
+  BoolColumn get isPrimary => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -360,7 +361,7 @@ class MoneyDatabase extends _$MoneyDatabase {
   );
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -397,6 +398,11 @@ class MoneyDatabase extends _$MoneyDatabase {
         await m.createTable(homeInventoryItems);
         try {
           await m.addColumn(groceryItems, groceryItems.inventoryAppliedAt);
+        } catch (_) {}
+      }
+      if (from < 9) {
+        try {
+          await m.addColumn(moneyAccounts, moneyAccounts.isPrimary);
         } catch (_) {}
       }
     },

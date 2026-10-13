@@ -108,22 +108,25 @@ class MoneyRepository {
     required int openingBalanceMinor,
     int? icon,
     int? color,
+    bool isPrimary = false,
   }) async {
     if (name.trim().isEmpty || name.trim().length > 80) {
       throw ArgumentError('Account name must be between 1 and 80 characters.');
     }
     final now = DateTime.now();
+    final accountId = id ?? _uuid.v4();
     if (id == null) {
       await db
           .into(db.moneyAccounts)
           .insert(
             MoneyAccountsCompanion.insert(
-              id: _uuid.v4(),
+              id: accountId,
               name: name.trim(),
               type: type.name,
               openingBalanceMinor: openingBalanceMinor,
               iconCodePoint: Value(icon),
               colorValue: Value(color),
+              isPrimary: Value(isPrimary),
               createdAt: now,
               updatedAt: now,
             ),
@@ -136,10 +139,23 @@ class MoneyRepository {
           openingBalanceMinor: Value(openingBalanceMinor),
           iconCodePoint: Value(icon),
           colorValue: Value(color),
+          isPrimary: Value(isPrimary),
           updatedAt: Value(now),
         ),
       );
     }
+    if (isPrimary) {
+      await setPrimaryAccount(accountId);
+    }
+  }
+
+  Future<void> setPrimaryAccount(String accountId) async {
+    await db.transaction(() async {
+      await (db.update(db.moneyAccounts))
+          .write(const MoneyAccountsCompanion(isPrimary: Value(false)));
+      await (db.update(db.moneyAccounts)..where((a) => a.id.equals(accountId)))
+          .write(const MoneyAccountsCompanion(isPrimary: Value(true)));
+    });
   }
 
   Future<void> archiveAccount(String id, {required bool archive}) =>
@@ -423,6 +439,7 @@ class MoneyRepository {
             openingBalanceMinor: 0,
             iconCodePoint: null,
             colorValue: null,
+            isPrimary: false,
             createdAt: now,
             updatedAt: now,
             archivedAt: null,
@@ -435,6 +452,7 @@ class MoneyRepository {
                   name: account.name,
                   type: account.type,
                   openingBalanceMinor: 0,
+                  isPrimary: const Value(false),
                   createdAt: now,
                   updatedAt: now,
                 ),
@@ -459,6 +477,7 @@ class MoneyRepository {
               openingBalanceMinor: 0,
               iconCodePoint: null,
               colorValue: null,
+              isPrimary: false,
               createdAt: now,
               updatedAt: now,
               archivedAt: null,
@@ -471,6 +490,7 @@ class MoneyRepository {
                     name: destination.name,
                     type: destination.type,
                     openingBalanceMinor: 0,
+                    isPrimary: const Value(false),
                     createdAt: now,
                     updatedAt: now,
                   ),

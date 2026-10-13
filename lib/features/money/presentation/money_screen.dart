@@ -5,19 +5,17 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../app/theme/app_colors.dart';
+import '../../../core/widgets/brutal_card.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/page_container.dart';
 import '../../../core/widgets/section_header.dart';
-import '../../../core/widgets/summary_card.dart';
 import '../application/money_providers.dart';
 import '../data/money_database.dart';
 import '../domain/money_models.dart';
 import 'money_workflows.dart';
-import 'money_excel_workflows.dart';
 
 class MoneyScreen extends ConsumerWidget {
   const MoneyScreen({super.key});
@@ -75,21 +73,36 @@ class _MoneyDashboard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final period = ref.watch(moneyPeriodProvider);
     final selectedDate = ref.watch(moneyAnchorDateProvider);
-    final selectedAccount = ref.watch(moneySelectedAccountProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+
     const allAccountsKey = '__all_accounts__';
-    const bothAccountsKey = '__both_accounts__';
-    final scopedTransactions =
-        selectedAccount == null ||
-            selectedAccount == allAccountsKey ||
-            selectedAccount == bothAccountsKey
+    final primaryAccount = accounts
+        .where((a) => a.isPrimary && a.archivedAt == null)
+        .firstOrNull;
+
+    final rawSelectedAccount = ref.watch(moneySelectedAccountProvider);
+    final effectiveAccountId =
+        rawSelectedAccount ?? (primaryAccount?.id ?? allAccountsKey);
+
+    final isAllAccountsSelected =
+        effectiveAccountId == allAccountsKey ||
+        !accounts.any((a) => a.id == effectiveAccountId);
+
+    final MoneyAccount? activeSelectedAccount = isAllAccountsSelected
+        ? null
+        : accounts.firstWhere((a) => a.id == effectiveAccountId);
+
+    final scopedTransactions = isAllAccountsSelected
         ? transactions
         : transactions
               .where(
                 (t) =>
-                    t.accountId == selectedAccount ||
-                    t.destinationAccountId == selectedAccount,
+                    t.accountId == effectiveAccountId ||
+                    t.destinationAccountId == effectiveAccountId,
               )
               .toList();
+
     final inPeriod = scopedTransactions
         .where(
           (t) =>
@@ -97,31 +110,25 @@ class _MoneyDashboard extends ConsumerWidget {
               t.occurredAt.isBefore(range.end),
         )
         .toList();
+
     final expenses = inPeriod
         .where((t) => t.type == 'expense')
         .fold<int>(0, (sum, t) => sum + t.amountMinor);
+
     final income = inPeriod
         .where((t) => t.type == 'income')
         .fold<int>(0, (sum, t) => sum + t.amountMinor);
+
     final totalBalance = accounts.fold<int>(
       0,
-      (sum, a) =>
-          selectedAccount != null &&
-              selectedAccount != allAccountsKey &&
-              selectedAccount != bothAccountsKey &&
-              a.id != selectedAccount
-          ? sum
-          : sum + (balances[a.id] ?? a.openingBalanceMinor),
+      (sum, a) => sum + (balances[a.id] ?? a.openingBalanceMinor),
     );
-    final selectedBalance =
-        selectedAccount != null &&
-            selectedAccount != allAccountsKey &&
-            selectedAccount != bothAccountsKey
-        ? (balances[selectedAccount] ??
-              accounts
-                  .where((a) => a.id == selectedAccount)
-                  .fold<int>(0, (sum, a) => sum + a.openingBalanceMinor))
-        : totalBalance;
+
+    final selectedBalance = isAllAccountsSelected
+        ? totalBalance
+        : (balances[activeSelectedAccount!.id] ??
+              activeSelectedAccount.openingBalanceMinor);
+
     final expenseCategories =
         ref.watch(moneyExpensesCategoriesProvider).value ??
         const <MoneyCategory>[];
@@ -131,31 +138,28 @@ class _MoneyDashboard extends ConsumerWidget {
     final categoryMap = {
       for (final c in [...expenseCategories, ...incomeCategories]) c.id: c,
     };
-    final byCategory = <String, int>{};
-    for (final tx in inPeriod.where((t) => t.type == 'expense')) {
-      if (tx.categoryId != null) {
-        byCategory.update(
-          tx.categoryId!,
-          (value) => value + tx.amountMinor,
-          ifAbsent: () => tx.amountMinor,
-        );
-      }
-    }
     final accountMap = {for (final a in accounts) a.id: a};
+
     final headerTitle = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Money Manager',
-          style: Theme.of(context).textTheme.headlineMedium,
+          style: Theme.of(context).textTheme.headlineMedium
+              ?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
         Text(
           'Your finances, in one place.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: isDark
+                ? AppColors.darkSecondaryText
+                : AppColors.lightSecondaryText,
+          ),
         ),
       ],
     );
+
     final headerActions = Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -169,11 +173,6 @@ class _MoneyDashboard extends ConsumerWidget {
           tooltip: 'Transaction history',
           onPressed: () => _open(context, const TransactionHistoryScreen()),
           icon: const Icon(Icons.receipt_long_outlined),
-        ),
-        FilledButton.icon(
-          onPressed: () => _open(context, const TransactionFormScreen()),
-          icon: const Icon(Icons.add),
-          label: const Text('Add transaction'),
         ),
       ],
     );
@@ -200,190 +199,36 @@ class _MoneyDashboard extends ConsumerWidget {
                     ],
                   ),
           ),
-          const SizedBox(height: 22),
-          DropdownButtonFormField<String>(
-            initialValue: selectedAccount ?? allAccountsKey,
-            decoration: const InputDecoration(
-              labelText: 'Account',
-              prefixIcon: Icon(Icons.account_balance_wallet_outlined),
-            ),
-            items: [
-              const DropdownMenuItem(
-                value: allAccountsKey,
-                child: Text('Total (All accounts)'),
-              ),
-              if (accounts.length == 2)
-                const DropdownMenuItem(
-                  value: bothAccountsKey,
-                  child: Text('Both Accounts'),
-                ),
-              for (final account in accounts)
-                DropdownMenuItem(value: account.id, child: Text(account.name)),
-            ],
-            onChanged: (value) =>
-                ref
-                    .read(moneySelectedAccountProvider.notifier)
-                    .state = value == allAccountsKey || value == bothAccountsKey
-                ? null
-                : value,
+          const SizedBox(height: 16),
+          _buildTotalBalanceCard(
+            context: context,
+            ref: ref,
+            accounts: accounts,
+            balances: balances,
+            effectiveAccountId: effectiveAccountId,
+            selectedAccount: activeSelectedAccount,
+            isAllSelected: isAllAccountsSelected,
+            selectedBalance: selectedBalance,
+            isDark: isDark,
+            borderColor: borderColor,
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Overview',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              DropdownButton<MoneyPeriod>(
-                value: period,
-                items: MoneyPeriod.values
-                    .map(
-                      (p) => DropdownMenuItem(
-                        value: p,
-                        child: Text(_periodName(p)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) async {
-                  if (value == null) return;
-                  ref.read(moneyPeriodProvider.notifier).state = value;
-                  if (value == MoneyPeriod.custom && context.mounted) {
-                    final picked = await showDateRangePicker(
-                      context: context,
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime(2100),
-                    );
-                    if (picked != null) {
-                      ref
-                          .read(moneyCustomRangeProvider.notifier)
-                          .state = MoneyRange(
-                        picked.start,
-                        DateTime(
-                          picked.end.year,
-                          picked.end.month,
-                          picked.end.day + 1,
-                        ),
-                      );
-                    }
-                  } else {
-                    ref.read(moneyCustomRangeProvider.notifier).state = null;
-                  }
-                },
-              ),
-              if (period != MoneyPeriod.custom)
-                IconButton(
-                  tooltip: 'Previous ${_periodName(period).toLowerCase()}',
-                  onPressed: () =>
-                      ref.read(moneyAnchorDateProvider.notifier).state = _shift(
-                        selectedDate,
-                        period,
-                        -1,
-                      ),
-                  icon: const Icon(Icons.chevron_left),
-                ),
-              if (period != MoneyPeriod.custom)
-                IconButton(
-                  tooltip: 'Next ${_periodName(period).toLowerCase()}',
-                  onPressed: () =>
-                      ref.read(moneyAnchorDateProvider.notifier).state = _shift(
-                        selectedDate,
-                        period,
-                        1,
-                      ),
-                  icon: const Icon(Icons.chevron_right),
-                ),
-              const Icon(Icons.calendar_today_outlined, size: 18),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  period == MoneyPeriod.custom
-                      ? _rangeLabel(range)
-                      : _rangeLabel(range),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
+          _buildPeriodNavigationRow(
+            context: context,
+            ref: ref,
+            period: period,
+            selectedDate: selectedDate,
+            range: range,
+            isDark: isDark,
+            borderColor: borderColor,
           ),
           const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth > 740 ? 3 : 2;
-              return GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: columns,
-                childAspectRatio: columns == 3 ? 2.5 : 1.65,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                children: [
-                  SummaryCard(
-                    label: 'Total balance',
-                    value: formatMinorUnits(selectedBalance),
-                    icon: Icons.account_balance_wallet_outlined,
-                    tint: AppColors.purple,
-                    supportingText: selectedAccount == null
-                        ? 'Across active accounts'
-                        : 'Selected account',
-                  ),
-                  SummaryCard(
-                    label: 'Income',
-                    value: formatMinorUnits(income),
-                    icon: Icons.south_west_rounded,
-                    tint: AppColors.success,
-                    supportingText: _rangeLabel(range),
-                  ),
-                  SummaryCard(
-                    label: 'Expenses',
-                    value: formatMinorUnits(expenses),
-                    icon: Icons.north_east_rounded,
-                    tint: AppColors.pink,
-                    supportingText: _rangeLabel(range),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-          SectionHeader(
-            title: 'Quick actions',
-            subtitle: 'Record money or manage your accounts.',
-          ),
-          Wrap(
-            spacing: 10,
-            runSpacing: 8,
-            children: [
-              _QuickAction(
-                label: 'Add expense',
-                icon: Icons.north_east_rounded,
-                onTap: () => _open(
-                  context,
-                  const TransactionFormScreen(initialType: MoneyType.expense),
-                ),
-              ),
-              _QuickAction(
-                label: 'Add income',
-                icon: Icons.south_west_rounded,
-                onTap: () => _open(
-                  context,
-                  const TransactionFormScreen(initialType: MoneyType.income),
-                ),
-              ),
-              _QuickAction(
-                label: 'Transfer',
-                icon: Icons.swap_horiz_rounded,
-                onTap: () => _open(
-                  context,
-                  const TransactionFormScreen(initialType: MoneyType.transfer),
-                ),
-              ),
-              _QuickAction(
-                label: 'Manage accounts',
-                icon: Icons.account_balance_outlined,
-                onTap: () => _open(context, const AccountManagementScreen()),
-              ),
-            ],
+          _buildSummaryCardsRow(
+            context: context,
+            income: income,
+            expenses: expenses,
+            rangeLabel: _rangeLabel(range),
+            isDark: isDark,
           ),
           const SizedBox(height: 24),
           SectionHeader(
@@ -394,6 +239,7 @@ class _MoneyDashboard extends ConsumerWidget {
               child: const Text('Manage'),
             ),
           ),
+          const SizedBox(height: 8),
           if (accounts.isEmpty)
             Card(
               child: EmptyState(
@@ -417,7 +263,9 @@ class _MoneyDashboard extends ConsumerWidget {
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: accounts.length,
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: wide ? 3 : 1,
+                    crossAxisCount: wide
+                        ? 3
+                        : (constraints.maxWidth > 480 ? 2 : 1),
                     mainAxisExtent: 92,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 10,
@@ -433,38 +281,74 @@ class _MoneyDashboard extends ConsumerWidget {
                               account.id;
                           _open(context, const TransactionHistoryScreen());
                         },
-                        leading: CircleAvatar(
-                          backgroundColor: account.colorValue == null
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Color(account.colorValue!),
-                          child: Icon(
-                            moneyIconForCodePoint(account.iconCodePoint),
-                          ),
-                        ),
-                        title: Text(account.name),
-                        subtitle: Text(_accountTypeName(account.type)),
-                        trailing: Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
+                        leading: Stack(
                           children: [
-                            Text(
-                              formatMinorUnits(
-                                balances[account.id] ??
-                                    account.openingBalanceMinor,
-                              ),
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
-                            IconButton(
-                              tooltip: 'Adjust account balance',
-                              icon: const Icon(Icons.edit_outlined, size: 18),
-                              onPressed: () => showAccountBalanceEditor(
-                                context,
-                                ref,
-                                account,
-                                balances[account.id] ??
-                                    account.openingBalanceMinor,
+                            CircleAvatar(
+                              backgroundColor: account.colorValue == null
+                                  ? Theme.of(context)
+                                        .colorScheme
+                                        .primaryContainer
+                                  : Color(account.colorValue!),
+                              child: Icon(
+                                moneyIconForCodePoint(account.iconCodePoint),
                               ),
                             ),
+                            if (account.isPrimary)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.brand,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.star,
+                                    size: 10,
+                                    color: AppColors.lightText,
+                                  ),
+                                ),
+                              ),
                           ],
+                        ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                account.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (account.isPrimary) ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.brand.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'Primary',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.brand,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        subtitle: Text(_accountTypeName(account.type)),
+                        trailing: Text(
+                          formatMinorUnits(
+                            balances[account.id] ?? account.openingBalanceMinor,
+                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                     );
@@ -477,7 +361,8 @@ class _MoneyDashboard extends ConsumerWidget {
             title: 'Spending analytics',
             subtitle: 'Expenses only. Transfers are excluded.',
           ),
-          _SpendingCharts(
+          const SizedBox(height: 8),
+          SpendingCharts(
             transactions: inPeriod,
             categories: categoryMap,
             period: period,
@@ -520,45 +405,478 @@ class _MoneyDashboard extends ConsumerWidget {
                 ],
               ),
             ),
-          const SizedBox(height: 20),
-          SectionHeader(
-            title: 'Money tools',
-            subtitle: 'Manage budgets and move data in or out.',
-          ),
-          Wrap(
-            spacing: 10,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => context.push('/budgets'),
-                icon: const Icon(Icons.savings_outlined),
-                label: const Text('Budgets'),
-              ),
-              const MoneyExcelButtons(),
-            ],
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 32),
         ],
       ),
     );
   }
+
+  Widget _buildTotalBalanceCard({
+    required BuildContext context,
+    required WidgetRef ref,
+    required List<MoneyAccount> accounts,
+    required Map<String, int> balances,
+    required String effectiveAccountId,
+    required MoneyAccount? selectedAccount,
+    required bool isAllSelected,
+    required int selectedBalance,
+    required bool isDark,
+    required Color borderColor,
+  }) {
+    const allAccountsKey = '__all_accounts__';
+
+    final titleText = isAllSelected
+        ? 'Total balance'
+        : '${selectedAccount!.name} balance';
+
+    final subtitleText = isAllSelected
+        ? '${accounts.length} active account${accounts.length == 1 ? '' : 's'}'
+        : _accountTypeName(selectedAccount!.type);
+
+    final isPrimary = selectedAccount?.isPrimary ?? false;
+
+    return BrutalCard(
+      padding: const EdgeInsets.all(18),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < 380;
+
+          final balanceInfo = Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.brand.withValues(alpha: 0.2)
+                      : AppColors.brand,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isDark ? AppColors.darkBorder : AppColors.lightText,
+                    width: 1.5,
+                  ),
+                ),
+                child: Icon(
+                  selectedAccount != null
+                      ? moneyIconForCodePoint(selectedAccount.iconCodePoint)
+                      : Icons.account_balance_wallet_outlined,
+                  color: isDark ? AppColors.brand : AppColors.lightText,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      titleText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? AppColors.darkSecondaryText
+                            : AppColors.lightSecondaryText,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      formatMinorUnits(selectedBalance),
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitleText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark
+                            ? AppColors.darkSecondaryText
+                            : AppColors.lightSecondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+
+          final selectorWidget = Column(
+            crossAxisAlignment: isNarrow
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: borderColor, width: 1.5),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: effectiveAccountId,
+                    isDense: true,
+                    icon: const Icon(Icons.arrow_drop_down, size: 20),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: allAccountsKey,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.account_balance_wallet_outlined,
+                              size: 16,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'All accounts',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      for (final account in accounts)
+                        DropdownMenuItem<String>(
+                          value: account.id,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                moneyIconForCodePoint(account.iconCodePoint),
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                account.name,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        ref.read(moneySelectedAccountProvider.notifier).state =
+                            val == allAccountsKey ? null : val;
+                      }
+                    },
+                  ),
+                ),
+              ),
+              if (isPrimary) ...[
+                const SizedBox(height: 6),
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.star_rounded, size: 14, color: AppColors.brand),
+                    SizedBox(width: 3),
+                    Text(
+                      'Primary account',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.brand,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          );
+
+          if (isNarrow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                balanceInfo,
+                const SizedBox(height: 12),
+                selectorWidget,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: balanceInfo),
+              const SizedBox(width: 12),
+              selectorWidget,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPeriodNavigationRow({
+    required BuildContext context,
+    required WidgetRef ref,
+    required MoneyPeriod period,
+    required DateTime selectedDate,
+    required MoneyRange range,
+    required bool isDark,
+    required Color borderColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Row(
+        children: [
+          DropdownButtonHideUnderline(
+            child: DropdownButton<MoneyPeriod>(
+              value: period,
+              isDense: true,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.darkText : AppColors.lightText,
+              ),
+              items: MoneyPeriod.values
+                  .map(
+                    (p) =>
+                        DropdownMenuItem(value: p, child: Text(_periodName(p))),
+                  )
+                  .toList(),
+              onChanged: (value) async {
+                if (value == null) return;
+                ref.read(moneyPeriodProvider.notifier).state = value;
+                if (value == MoneyPeriod.custom && context.mounted) {
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) {
+                    ref
+                        .read(moneyCustomRangeProvider.notifier)
+                        .state = MoneyRange(
+                      picked.start,
+                      DateTime(
+                        picked.end.year,
+                        picked.end.month,
+                        picked.end.day + 1,
+                      ),
+                    );
+                  }
+                } else {
+                  ref.read(moneyCustomRangeProvider.notifier).state = null;
+                }
+              },
+            ),
+          ),
+          const Spacer(),
+          if (period != MoneyPeriod.custom) ...[
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              iconSize: 20,
+              tooltip: 'Previous ${_periodName(period).toLowerCase()}',
+              onPressed: () =>
+                  ref.read(moneyAnchorDateProvider.notifier).state = _shift(
+                    selectedDate,
+                    period,
+                    -1,
+                  ),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              iconSize: 20,
+              tooltip: 'Next ${_periodName(period).toLowerCase()}',
+              onPressed: () =>
+                  ref.read(moneyAnchorDateProvider.notifier).state = _shift(
+                    selectedDate,
+                    period,
+                    1,
+                  ),
+              icon: const Icon(Icons.chevron_right),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Text(
+            _rangeLabel(range),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? AppColors.darkText : AppColors.lightText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCardsRow({
+    required BuildContext context,
+    required int income,
+    required int expenses,
+    required String rangeLabel,
+    required bool isDark,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: BrutalCard(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.south_west_rounded,
+                        color: AppColors.success,
+                        size: 16,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Income',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  formatMinorUnits(income),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.success,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  rangeLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark
+                        ? AppColors.darkSecondaryText
+                        : AppColors.lightSecondaryText,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: BrutalCard(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: AppColors.pink.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.north_east_rounded,
+                        color: AppColors.pink,
+                        size: 16,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Expenses',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  formatMinorUnits(expenses),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.warning,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  rangeLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark
+                        ? AppColors.darkSecondaryText
+                        : AppColors.lightSecondaryText,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-class _SpendingCharts extends StatefulWidget {
-  const _SpendingCharts({
+class SpendingCharts extends StatefulWidget {
+  const SpendingCharts({
     required this.transactions,
     required this.categories,
     required this.period,
+    super.key,
   });
   final List<MoneyTransaction> transactions;
   final Map<String, MoneyCategory> categories;
   final MoneyPeriod period;
 
   @override
-  State<_SpendingCharts> createState() => _SpendingChartsState();
+  State<SpendingCharts> createState() => _SpendingChartsState();
 }
 
-class _SpendingChartsState extends State<_SpendingCharts> {
+class _SpendingChartsState extends State<SpendingCharts> {
   bool _lineChart = false;
   bool _income = false;
 
@@ -593,16 +911,6 @@ class _SpendingChartsState extends State<_SpendingCharts> {
     }
     final total = byCategory.values.fold<int>(0, (sum, n) => sum + n);
     final chartTitle = _income ? 'Income by category' : 'Expenses by category';
-    if (total == 0) {
-      return const Card(
-        child: EmptyState(
-          icon: Icons.pie_chart_outline,
-          title: 'No data for this period',
-          message: 'This chart will appear after you record activity.',
-          compact: true,
-        ),
-      );
-    }
     final entries = byCategory.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final days = byDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
@@ -741,31 +1049,43 @@ class _SpendingChartsState extends State<_SpendingCharts> {
                       const SizedBox(height: 12),
                       SizedBox(
                         height: 180,
-                        child: Row(
-                          children: [
-                            Expanded(child: PieChart(pie)),
-                            Expanded(
-                              child: ListView(
-                                shrinkWrap: true,
+                        child: total == 0
+                            ? const Center(
+                                child: SingleChildScrollView(
+                                  physics: NeverScrollableScrollPhysics(),
+                                  child: EmptyState(
+                                    icon: Icons.pie_chart_outline,
+                                    title: 'No data for this period',
+                                    message: 'This chart will appear after you record activity.',
+                                    compact: true,
+                                  ),
+                                ),
+                              )
+                            : Row(
                                 children: [
-                                  for (final entry in entries.take(5))
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 4,
-                                      ),
-                                      child: Text(
-                                        '${entry.key == '__uncategorized__' ? 'Uncategorized' : categories[entry.key]?.name ?? 'Archived category'} · ${(entry.value * 100 / total).toStringAsFixed(0)}%  ${formatMinorUnits(entry.value)}',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall,
-                                        maxLines: 2,
-                                      ),
+                                  Expanded(child: PieChart(pie)),
+                                  Expanded(
+                                    child: ListView(
+                                      shrinkWrap: true,
+                                      children: [
+                                        for (final entry in entries.take(5))
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 4,
+                                            ),
+                                            child: Text(
+                                              '${entry.key == '__uncategorized__' ? 'Uncategorized' : categories[entry.key]?.name ?? 'Archived category'} · ${(entry.value * 100 / total).toStringAsFixed(0)}%  ${formatMinorUnits(entry.value)}',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall,
+                                              maxLines: 2,
+                                            ),
+                                          ),
+                                      ],
                                     ),
+                                  ),
                                 ],
                               ),
-                            ),
-                          ],
-                        ),
                       ),
                     ],
                   ),
@@ -811,7 +1131,19 @@ class _SpendingChartsState extends State<_SpendingCharts> {
                       const SizedBox(height: 12),
                       SizedBox(
                         height: 180,
-                        child: _lineChart ? LineChart(line) : BarChart(bars),
+                        child: days.isEmpty
+                            ? const Center(
+                                child: SingleChildScrollView(
+                                  physics: NeverScrollableScrollPhysics(),
+                                  child: EmptyState(
+                                    icon: Icons.show_chart,
+                                    title: 'No trend data',
+                                    message: 'This chart will appear after you record activity.',
+                                    compact: true,
+                                  ),
+                                ),
+                              )
+                            : (_lineChart ? LineChart(line) : BarChart(bars)),
                       ),
                     ],
                   ),
@@ -886,23 +1218,6 @@ class MoneyTransactionTile extends StatelessWidget {
       ),
     );
   }
-}
-
-class _QuickAction extends StatelessWidget {
-  const _QuickAction({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => OutlinedButton.icon(
-    onPressed: onTap,
-    icon: Icon(icon),
-    label: Text(label),
-  );
 }
 
 class _ErrorState extends StatelessWidget {

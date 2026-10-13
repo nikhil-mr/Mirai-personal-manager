@@ -997,12 +997,58 @@ class AccountManagementScreen extends ConsumerWidget {
                   for (final account in rows)
                     Card(
                       child: ListTile(
-                        leading: CircleAvatar(
-                          child: Icon(
-                            moneyIconForCodePoint(account.iconCodePoint),
-                          ),
+                        leading: Stack(
+                          children: [
+                            CircleAvatar(
+                              child: Icon(
+                                moneyIconForCodePoint(account.iconCodePoint),
+                              ),
+                            ),
+                            if (account.isPrimary)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.brand,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.star,
+                                    size: 10,
+                                    color: AppColors.lightText,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                        title: Text(account.name),
+                        title: Row(
+                          children: [
+                            Text(account.name),
+                            if (account.isPrimary) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.brand.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'Primary',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.brand,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                         subtitle: Text(
                           '${_accountTypeName(account.type)}${account.archivedAt == null ? '' : ' · Archived'}',
                         ),
@@ -1029,7 +1075,12 @@ class AccountManagementScreen extends ConsumerWidget {
                               ),
                             PopupMenuButton<String>(
                               onSelected: (action) async {
-                                if (action == 'edit') {
+                                if (action == 'primary') {
+                                  await ref
+                                      .read(moneyRepositoryProvider)
+                                      .setPrimaryAccount(account.id);
+                                  ref.invalidate(moneyAccountsProvider);
+                                } else if (action == 'edit') {
                                   await _push(
                                     context,
                                     AccountFormScreen(account: account),
@@ -1095,11 +1146,20 @@ class AccountManagementScreen extends ConsumerWidget {
                                 }
                               },
                               itemBuilder: (_) => [
-                                if (account.archivedAt == null)
+                                if (account.archivedAt == null) ...[
+                                  PopupMenuItem(
+                                    value: 'primary',
+                                    child: Text(
+                                      account.isPrimary
+                                          ? 'Primary Account (Selected)'
+                                          : 'Set as primary account',
+                                    ),
+                                  ),
                                   const PopupMenuItem(
                                     value: 'edit',
                                     child: Text('Edit details'),
                                   ),
+                                ],
                                 PopupMenuItem(
                                   value: account.archivedAt == null
                                       ? 'archive'
@@ -1138,6 +1198,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
   final _key = GlobalKey<FormState>();
   late final TextEditingController _name, _balance;
   bool _balanceChanged = false;
+  bool _isPrimary = false;
   AccountType _type = AccountType.bank;
   static const _colors = [
     AppColors.brand,
@@ -1170,6 +1231,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
     );
     _color = a?.colorValue ?? _color;
     _icon = a?.iconCodePoint ?? _icon;
+    _isPrimary = a?.isPrimary ?? false;
   }
 
   @override
@@ -1302,6 +1364,20 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
               ],
             ),
             const SizedBox(height: 18),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'Set as primary account',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text(
+                'Automatically selected when opening Money Manager.',
+              ),
+              value: _isPrimary,
+              activeThumbColor: AppColors.brand,
+              onChanged: (val) => setState(() => _isPrimary = val),
+            ),
+            const SizedBox(height: 18),
             FilledButton(
               onPressed: () async {
                 if (!_key.currentState!.validate()) return;
@@ -1317,6 +1393,7 @@ class _AccountFormScreenState extends ConsumerState<AccountFormScreen> {
                             parseMinorUnits(_balance.text)!,
                         icon: _icon,
                         color: _color,
+                        isPrimary: _isPrimary,
                       );
                   if (widget.account != null && _balanceChanged) {
                     await ref
