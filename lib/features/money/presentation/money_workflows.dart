@@ -9,12 +9,12 @@ import 'package:intl/intl.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/brutal_card.dart';
 import '../application/money_providers.dart';
 import '../data/money_database.dart';
 import '../domain/money_models.dart';
 import 'money_excel_workflows.dart';
 import '../../today/application/dashboard_providers.dart';
-import 'money_screen.dart' show MoneyTransactionTile;
 
 class TransactionFormScreen extends ConsumerStatefulWidget {
   const TransactionFormScreen({
@@ -998,23 +998,161 @@ class TransactionHistoryScreen extends ConsumerStatefulWidget {
       _TransactionHistoryScreenState();
 }
 
+class _HistoryTransactionTile extends StatelessWidget {
+  const _HistoryTransactionTile({
+    required this.transaction,
+    required this.account,
+    required this.destination,
+    required this.category,
+    required this.onTap,
+  });
+  final MoneyTransaction transaction;
+  final MoneyAccount? account;
+  final MoneyAccount? destination;
+  final MoneyCategory? category;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = transaction.type == 'income'
+        ? AppColors.success
+        : transaction.type == 'expense'
+        ? AppColors.warning
+        : Theme.of(context).colorScheme.primary;
+    final amountPrefix = transaction.type == 'income'
+        ? '+'
+        : transaction.type == 'expense'
+        ? '−'
+        : '↔ ';
+    final title = transaction.type == 'transfer'
+        ? '${account?.name ?? 'Account'} → ${destination?.name ?? 'Account'}'
+        : category?.name ?? 'Uncategorized';
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: .12),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: color.withValues(alpha: .5),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                moneyIconForCodePoint(
+                  category?.iconCodePoint ??
+                      (transaction.type == 'transfer'
+                          ? Icons.swap_horiz.codePoint
+                          : Icons.receipt_long.codePoint),
+                ),
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${transaction.type[0].toUpperCase()}${transaction.type.substring(1)} • ${DateFormat.jm().format(transaction.occurredAt.toLocal())} • ${transaction.type == 'transfer' ? 'Transfer' : account?.name ?? 'Account'}',
+                    style: TextStyle(
+                      color: isDark
+                          ? AppColors.darkSecondaryText
+                          : AppColors.lightSecondaryText,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (transaction.note.trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      transaction.note.trim(),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$amountPrefix${formatMinorUnits(transaction.amountMinor)}',
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _TransactionHistoryScreenState
     extends ConsumerState<TransactionHistoryScreen> {
   final _search = TextEditingController();
-  String _type = 'all';
-  DateTimeRange? _range;
-  MoneyPeriod _period = MoneyPeriod.day;
-  DateTime _anchorDate = DateTime.now();
+
+  String _type = 'all'; // all, expense, income, transfer
   String? _categoryFilter;
-  bool _allDates = true;
+
+  bool _allDates = false;
+  MoneyPeriod _period = MoneyPeriod.month;
+  DateTime _anchorDate = DateTime.now();
+  DateTimeRange? _customRange;
+
+  String _sortBy = 'date';
+  bool _sortAscending = false;
+
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
   }
 
+  void _resetFilters() {
+    setState(() {
+      _search.clear();
+      _type = 'all';
+      _categoryFilter = null;
+      ref.read(moneySelectedAccountProvider.notifier).state = null;
+      _customRange = null;
+      _period = MoneyPeriod.month;
+      _anchorDate = DateTime.now();
+      _allDates = false;
+      _sortBy = 'date';
+      _sortAscending = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+
     final txns =
         ref.watch(moneyTransactionsProvider).value ??
         const <MoneyTransaction>[];
@@ -1029,45 +1167,108 @@ class _TransactionHistoryScreenState
     final accountMap = {for (final a in accounts) a.id: a};
     final categoryMap = {for (final c in categories) c.id: c};
     final accountFilter = ref.watch(moneySelectedAccountProvider);
-    final dateRange = _range == null
-        ? MoneyRange.forPeriod(_period, _anchorDate)
-        : MoneyRange(
-            _range!.start,
-            DateTime(_range!.end.year, _range!.end.month, _range!.end.day + 1),
-          );
+
+    final dateRange = _customRange != null
+        ? MoneyRange(
+            _customRange!.start,
+            DateTime(
+              _customRange!.end.year,
+              _customRange!.end.month,
+              _customRange!.end.day + 1,
+            ),
+          )
+        : (_allDates
+              ? MoneyRange(DateTime(2000), DateTime(2100))
+              : MoneyRange.forPeriod(_period, _anchorDate));
+
     final filtered = txns.where((t) {
       if (_type != 'all' && t.type != _type) return false;
       if (accountFilter != null &&
           t.accountId != accountFilter &&
-          t.destinationAccountId != accountFilter) {
+          t.destinationAccountId != accountFilter)
         return false;
-      }
       if (!_allDates &&
           (t.occurredAt.isBefore(dateRange.start) ||
-              !t.occurredAt.isBefore(dateRange.end))) {
+              !t.occurredAt.isBefore(dateRange.end)))
         return false;
-      }
-      if (_categoryFilter != null && t.categoryId != _categoryFilter) {
+      if (_categoryFilter != null && t.categoryId != _categoryFilter)
         return false;
-      }
+
       final query = _search.text.trim().toLowerCase();
-      if (query.isNotEmpty &&
-          !('${t.note} ${categoryMap[t.categoryId]?.name ?? ''} ${accountMap[t.accountId]?.name ?? ''} ${accountMap[t.destinationAccountId]?.name ?? ''}')
-              .toLowerCase()
-              .contains(query)) {
-        return false;
+      if (query.isNotEmpty) {
+        final searchString =
+            '${t.note} ${categoryMap[t.categoryId]?.name ?? ''} ${accountMap[t.accountId]?.name ?? ''}\n${accountMap[t.destinationAccountId]?.name ?? ''}'
+                .toLowerCase();
+        if (!searchString.contains(query)) return false;
       }
       return true;
-    }).toList()..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    }).toList();
+
+    // Summary calculation
+    int totalExpense = 0;
+    int totalIncome = 0;
+    for (final t in filtered) {
+      if (t.type == 'expense') totalExpense += t.amountMinor;
+      if (t.type == 'income') totalIncome += t.amountMinor;
+    }
+
+    // Sort
+    filtered.sort((a, b) {
+      int cmp = 0;
+      switch (_sortBy) {
+        case 'amount':
+          cmp = a.amountMinor.compareTo(b.amountMinor);
+          break;
+        case 'category':
+          final catA = (categoryMap[a.categoryId]?.name ?? 'Z').toLowerCase();
+          final catB = (categoryMap[b.categoryId]?.name ?? 'Z').toLowerCase();
+          cmp = catA.compareTo(catB);
+          break;
+        case 'account':
+          final accA = (accountMap[a.accountId]?.name ?? 'Z').toLowerCase();
+          final accB = (accountMap[b.accountId]?.name ?? 'Z').toLowerCase();
+          cmp = accA.compareTo(accB);
+          break;
+        case 'date':
+        default:
+          cmp = a.occurredAt.compareTo(b.occurredAt);
+          break;
+      }
+      return _sortAscending ? cmp : -cmp;
+    });
+
+    // Grouping by Date
+    final groups = <DateTime, List<MoneyTransaction>>{};
+    for (final t in filtered) {
+      final date = DateTime(
+        t.occurredAt.year,
+        t.occurredAt.month,
+        t.occurredAt.day,
+      );
+      groups.putIfAbsent(date, () => []).add(t);
+    }
+    final sortedGroupKeys = groups.keys.toList()
+      ..sort(
+        (a, b) => _sortBy == 'date' && _sortAscending
+            ? a.compareTo(b)
+            : b.compareTo(a),
+      );
+
     return Scaffold(
+      backgroundColor: isDark
+          ? AppColors.darkBackground
+          : AppColors.lightBackground,
       appBar: AppBar(
         title: const Text('Transaction history'),
         actions: [
-          if (accountFilter != null)
+          if (accountFilter != null ||
+              _categoryFilter != null ||
+              _type != 'all' ||
+              _search.text.isNotEmpty ||
+              _customRange != null)
             TextButton(
-              onPressed: () =>
-                  ref.read(moneySelectedAccountProvider.notifier).state = null,
-              child: const Text('Clear account'),
+              onPressed: _resetFilters,
+              child: const Text('Reset filters'),
             ),
         ],
       ),
@@ -1081,33 +1282,49 @@ class _TransactionHistoryScreenState
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            padding: const EdgeInsets.all(16),
             child: Column(
               children: [
                 TextField(
                   controller: _search,
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: 'Search note, category, or account',
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          showDateRangePicker(
-                            context: context,
-                            firstDate: DateTime(2000),
-                            lastDate: DateTime(2100),
-                          ).then(
-                            (r) => setState(() {
-                              _range = r;
-                              _period = MoneyPeriod.custom;
-                              _allDates = false;
-                            }),
-                          ),
-                      icon: const Icon(Icons.date_range),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      color: isDark ? AppColors.darkText : AppColors.lightText,
                     ),
+                    hintText: 'Search note, category, or account',
+                    filled: true,
+                    fillColor: Theme.of(context).cardColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: borderColor, width: 2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: borderColor, width: 2),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                        width: 2,
+                      ),
+                    ),
+                    suffixIcon: _search.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _search.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -1125,121 +1342,471 @@ class _TransactionHistoryScreenState
                               type == 'all'
                                   ? 'All types'
                                   : '${type[0].toUpperCase()}${type.substring(1)}',
+                              style: TextStyle(
+                                fontWeight: _type == type
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                color: isDark
+                                    ? AppColors.darkText
+                                    : AppColors.lightText,
+                              ),
                             ),
                             selected: _type == type,
+                            selectedColor: AppColors.brand,
+                            backgroundColor: Theme.of(context).cardColor,
                             onSelected: (_) => setState(() => _type = type),
-                          ),
-                        ),
-                      DropdownButton<String?>(
-                        value: accountFilter,
-                        hint: const Text('All accounts'),
-                        items: [
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('All accounts'),
-                          ),
-                          ...accounts.map(
-                            (a) => DropdownMenuItem<String?>(
-                              value: a.id,
-                              child: Text(a.name),
-                            ),
-                          ),
-                        ],
-                        onChanged: (v) => setState(
-                          () =>
-                              ref
-                                      .read(
-                                        moneySelectedAccountProvider.notifier,
-                                      )
-                                      .state =
-                                  v,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      DropdownButton<String?>(
-                        value: _categoryFilter,
-                        hint: const Text('All categories'),
-                        items: [
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('All categories'),
-                          ),
-                          ...categories
-                              .where((c) => c.archivedAt == null)
-                              .map(
-                                (c) => DropdownMenuItem<String?>(
-                                  value: c.id,
-                                  child: Text(c.name),
-                                ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: _type == type
+                                    ? AppColors.lightBorder
+                                    : borderColor,
+                                width: 2,
                               ),
-                        ],
-                        onChanged: (value) =>
-                            setState(() => _categoryFilter = value),
-                      ),
-                      const SizedBox(width: 12),
-                      DropdownButton<String>(
-                        value: _allDates ? 'all' : _period.name,
-                        items: [
-                          const DropdownMenuItem(
-                            value: 'all',
-                            child: Text('All dates'),
-                          ),
-                          for (final period in MoneyPeriod.values)
-                            DropdownMenuItem(
-                              value: period.name,
-                              child: Text(_historyPeriodName(period)),
                             ),
-                        ],
-                        onChanged: (value) async {
-                          if (value == null) return;
-                          if (value == 'all') {
-                            setState(() {
-                              _allDates = true;
-                              _range = null;
-                            });
-                          } else if (value == MoneyPeriod.custom.name) {
-                            await _pickHistoryRange();
-                          } else {
-                            setState(() {
-                              _period = MoneyPeriod.values.firstWhere(
-                                (period) => period.name == value,
-                              );
-                              _range = null;
-                              _allDates = false;
-                            });
-                          }
-                        },
-                      ),
-                      if (!_allDates && _period != MoneyPeriod.custom) ...[
-                        IconButton(
-                          tooltip: 'Previous period',
-                          onPressed: () => setState(
-                            () => _anchorDate = _shiftHistoryDate(
-                              _anchorDate,
-                              _period,
-                              -1,
-                            ),
+                            showCheckmark: false,
                           ),
-                          icon: const Icon(Icons.chevron_left),
                         ),
-                        IconButton(
-                          tooltip: 'Next period',
-                          onPressed: () => setState(
-                            () => _anchorDate = _shiftHistoryDate(
-                              _anchorDate,
-                              _period,
-                              1,
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                BrutalCard(
+                  padding: EdgeInsets.zero,
+                  child: Theme(
+                    data: Theme.of(context)
+                        .copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      title: const Text(
+                        'Filter & Sort',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      leading: const Icon(Icons.filter_list),
+                      childrenPadding: const EdgeInsets.all(16),
+                      children: [
+                        DropdownButtonFormField<String?>(
+                          decoration: InputDecoration(
+                            labelText: 'Category',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: borderColor,
+                                width: 2,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: borderColor,
+                                width: 2,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: isDark
+                                    ? AppColors.darkText
+                                    : AppColors.lightText,
+                                width: 2,
+                              ),
                             ),
                           ),
-                          icon: const Icon(Icons.chevron_right),
+                          value: _categoryFilter,
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Text('All categories'),
+                            ),
+                            ...categories
+                                .where((c) => c.archivedAt == null)
+                                .map(
+                                  (c) => DropdownMenuItem<String?>(
+                                    value: c.id,
+                                    child: Text(c.name),
+                                  ),
+                                ),
+                          ],
+                          onChanged: (v) => setState(() => _categoryFilter = v),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String?>(
+                          decoration: InputDecoration(
+                            labelText: 'Account',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: borderColor,
+                                width: 2,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: borderColor,
+                                width: 2,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: isDark
+                                    ? AppColors.darkText
+                                    : AppColors.lightText,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                          value: accountFilter,
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Text('All accounts'),
+                            ),
+                            ...accounts.map(
+                              (a) => DropdownMenuItem<String?>(
+                                value: a.id,
+                                child: Text(a.name),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) => setState(
+                            () =>
+                                ref
+                                        .read(
+                                          moneySelectedAccountProvider.notifier,
+                                        )
+                                        .state =
+                                    v,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Period',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? AppColors.darkSecondaryText
+                                  : AppColors.lightSecondaryText,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final p in [
+                                MoneyPeriod.day,
+                                MoneyPeriod.week,
+                                MoneyPeriod.month,
+                                MoneyPeriod.year,
+                              ])
+                                ChoiceChip(
+                                  label: Text(
+                                    p.name[0].toUpperCase() +
+                                        p.name.substring(1),
+                                    style: TextStyle(
+                                      color: isDark
+                                          ? AppColors.darkText
+                                          : AppColors.lightText,
+                                    ),
+                                  ),
+                                  selected:
+                                      _customRange == null && _period == p,
+                                  selectedColor: AppColors.brand,
+                                  backgroundColor: Theme.of(context).cardColor,
+                                  onSelected: (_) => setState(() {
+                                    _period = p;
+                                    _customRange = null;
+                                    _allDates = false;
+                                  }),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    side: BorderSide(
+                                      color:
+                                          (_customRange == null && _period == p)
+                                          ? AppColors.lightBorder
+                                          : borderColor,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  showCheckmark: false,
+                                ),
+                              ActionChip(
+                                label: Text(
+                                  _customRange == null
+                                      ? 'Custom...'
+                                      : 'Custom: ${DateFormat.yMd().format(_customRange!.start)} – ${DateFormat.yMd().format(_customRange!.end)}',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? AppColors.darkText
+                                        : AppColors.lightText,
+                                  ),
+                                ),
+                                onPressed: () async {
+                                  final range = await showDateRangePicker(
+                                    context: context,
+                                    firstDate: DateTime(2000),
+                                    lastDate: DateTime(2100),
+                                  );
+                                  if (range != null && mounted) {
+                                    setState(() {
+                                      _customRange = range;
+                                      _allDates = false;
+                                    });
+                                  }
+                                },
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: BorderSide(
+                                    color: _customRange != null
+                                        ? AppColors.lightBorder
+                                        : borderColor,
+                                    width: 2,
+                                  ),
+                                ),
+                                backgroundColor: _customRange != null
+                                    ? AppColors.brand
+                                    : Theme.of(context).cardColor,
+                              ),
+                              if (_customRange != null)
+                                IconButton(
+                                  icon: const Icon(Icons.clear, size: 20),
+                                  onPressed: () =>
+                                      setState(() => _customRange = null),
+                                  tooltip: 'Clear custom range',
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                decoration: InputDecoration(
+                                  labelText: 'Sort by',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: borderColor,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: borderColor,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: isDark
+                                          ? AppColors.darkText
+                                          : AppColors.lightText,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                                value: _sortBy,
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'date',
+                                    child: Text('Date'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'amount',
+                                    child: Text('Amount'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'category',
+                                    child: Text('Category'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'account',
+                                    child: Text('Account'),
+                                  ),
+                                ],
+                                onChanged: (v) =>
+                                    setState(() => _sortBy = v ?? 'date'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: DropdownButtonFormField<bool>(
+                                decoration: InputDecoration(
+                                  labelText: 'Order',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: borderColor,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: borderColor,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                      color: isDark
+                                          ? AppColors.darkText
+                                          : AppColors.lightText,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                                value: _sortAscending,
+                                items: [
+                                  DropdownMenuItem(
+                                    value: false,
+                                    child: Text(
+                                      _sortBy == 'date'
+                                          ? 'Newest first'
+                                          : _sortBy == 'amount'
+                                          ? 'Highest first'
+                                          : 'Z–A',
+                                    ),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: true,
+                                    child: Text(
+                                      _sortBy == 'date'
+                                          ? 'Oldest first'
+                                          : _sortBy == 'amount'
+                                          ? 'Lowest first'
+                                          : 'A–Z',
+                                    ),
+                                  ),
+                                ],
+                                onChanged: (v) =>
+                                    setState(() => _sortAscending = v ?? false),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+          if (_customRange == null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: () => setState(
+                      () => _anchorDate = _shiftHistoryDate(
+                        _anchorDate,
+                        _period,
+                        -1,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _formatRange(dateRange),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: () => setState(
+                      () => _anchorDate = _shiftHistoryDate(
+                        _anchorDate,
+                        _period,
+                        1,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_customRange != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Custom Range: ${_formatRange(dateRange)}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: BrutalCard(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  if (_type == 'all' || _type == 'expense')
+                    Column(
+                      children: [
+                        Text(
+                          'Expenses',
+                          style: TextStyle(
+                            color: isDark
+                                ? AppColors.darkSecondaryText
+                                : AppColors.lightSecondaryText,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          formatMinorUnits(totalExpense),
+                          style: const TextStyle(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  if (_type == 'all' || _type == 'income')
+                    Column(
+                      children: [
+                        Text(
+                          'Income',
+                          style: TextStyle(
+                            color: isDark
+                                ? AppColors.darkSecondaryText
+                                : AppColors.lightSecondaryText,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          formatMinorUnits(totalIncome),
+                          style: const TextStyle(
+                            color: AppColors.success,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           Expanded(
             child: filtered.isEmpty
                 ? const EmptyState(
@@ -1248,21 +1815,59 @@ class _TransactionHistoryScreenState
                     message: 'Try another search or date filter.',
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: filtered.length,
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                    itemCount: sortedGroupKeys.length,
                     itemBuilder: (context, i) {
-                      final tx = filtered[i];
-                      return Card(
-                        child: MoneyTransactionTile(
-                          transaction: tx,
-                          account: accountMap[tx.accountId],
-                          destination: accountMap[tx.destinationAccountId],
-                          category: categoryMap[tx.categoryId],
-                          onTap: () => _push(
-                            context,
-                            TransactionDetailScreen(transactionId: tx.id),
+                      final date = sortedGroupKeys[i];
+                      final txnsInGroup = groups[date]!;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                              DateFormat('d MMMM y (E)').format(date),
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
                           ),
-                        ),
+                          BrutalCard(
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              children: [
+                                for (
+                                  int j = 0;
+                                  j < txnsInGroup.length;
+                                  j++
+                                ) ...[
+                                  if (j > 0)
+                                    Divider(
+                                      height: 1,
+                                      thickness: 1,
+                                      color: borderColor,
+                                    ),
+                                  _HistoryTransactionTile(
+                                    transaction: txnsInGroup[j],
+                                    account:
+                                        accountMap[txnsInGroup[j].accountId],
+                                    destination:
+                                        accountMap[txnsInGroup[j]
+                                            .destinationAccountId],
+                                    category:
+                                        categoryMap[txnsInGroup[j].categoryId],
+                                    onTap: () => _push(
+                                      context,
+                                      TransactionDetailScreen(
+                                        transactionId: txnsInGroup[j].id,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                       );
                     },
                   ),
@@ -1272,19 +1877,13 @@ class _TransactionHistoryScreenState
     );
   }
 
-  Future<void> _pickHistoryRange() async {
-    final range = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (range != null && mounted) {
-      setState(() {
-        _range = range;
-        _period = MoneyPeriod.custom;
-        _allDates = false;
-      });
-    }
+  String _formatRange(MoneyRange range) {
+    if (_period == MoneyPeriod.day)
+      return DateFormat.yMMMd().format(range.start);
+    if (_period == MoneyPeriod.month)
+      return DateFormat.yMMM().format(range.start);
+    if (_period == MoneyPeriod.year) return DateFormat.y().format(range.start);
+    return '${DateFormat.MMMd().format(range.start)} - ${DateFormat.yMMMd().format(range.end.subtract(const Duration(days: 1)))}';
   }
 }
 
@@ -1445,14 +2044,6 @@ String _accountTypeName(String type) => switch (type) {
 };
 String _amountText(int minor) =>
     '${minor ~/ 100}.${(minor % 100).toString().padLeft(2, '0')}';
-
-String _historyPeriodName(MoneyPeriod period) => switch (period) {
-  MoneyPeriod.day => 'Day',
-  MoneyPeriod.week => 'Week',
-  MoneyPeriod.month => 'Month',
-  MoneyPeriod.year => 'Year',
-  MoneyPeriod.custom => 'Custom range',
-};
 
 DateTime _shiftHistoryDate(DateTime date, MoneyPeriod period, int direction) =>
     switch (period) {
