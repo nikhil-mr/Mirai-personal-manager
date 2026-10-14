@@ -160,15 +160,15 @@ class _MoneyDashboard extends ConsumerWidget {
       ],
     );
 
-    final headerActions = Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    final headerActions = Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         IconButton.filledTonal(
-          tooltip: 'Accounts',
+          tooltip: 'Manage accounts',
           onPressed: () => _open(context, const AccountManagementScreen()),
           icon: const Icon(Icons.account_balance_wallet_outlined),
         ),
+        const SizedBox(width: 8),
         IconButton.filledTonal(
           tooltip: 'Transaction history',
           onPressed: () => _open(context, const TransactionHistoryScreen()),
@@ -182,22 +182,13 @@ class _MoneyDashboard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, constraints) => constraints.maxWidth < 620
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      headerTitle,
-                      const SizedBox(height: 12),
-                      headerActions,
-                    ],
-                  )
-                : Row(
-                    children: [
-                      Expanded(child: headerTitle),
-                      headerActions,
-                    ],
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: headerTitle),
+              const SizedBox(width: 8),
+              headerActions,
+            ],
           ),
           const SizedBox(height: 16),
           _buildTotalBalanceCard(
@@ -230,132 +221,6 @@ class _MoneyDashboard extends ConsumerWidget {
             rangeLabel: _rangeLabel(range),
             isDark: isDark,
           ),
-          const SizedBox(height: 24),
-          SectionHeader(
-            title: 'Your accounts',
-            subtitle: 'Archived account balances are excluded from this total.',
-            action: TextButton(
-              onPressed: () => _open(context, const AccountManagementScreen()),
-              child: const Text('Manage'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (accounts.isEmpty)
-            Card(
-              child: EmptyState(
-                icon: Icons.account_balance_wallet_outlined,
-                title: 'Add your first account',
-                message: 'Create a bank account, cash wallet, or another account to start tracking your money.',
-                action: FilledButton.icon(
-                  onPressed: () => _open(context, const AccountFormScreen()),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add account'),
-                ),
-                compact: true,
-              ),
-            )
-          else
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.maxWidth > 740;
-                return GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: accounts.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: wide
-                        ? 3
-                        : (constraints.maxWidth > 480 ? 2 : 1),
-                    mainAxisExtent: 92,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 10,
-                  ),
-                  itemBuilder: (context, i) {
-                    final account = accounts[i];
-                    return Card(
-                      child: ListTile(
-                        onTap: () {
-                          ref
-                                  .read(moneySelectedAccountProvider.notifier)
-                                  .state =
-                              account.id;
-                          _open(context, const TransactionHistoryScreen());
-                        },
-                        leading: Stack(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: account.colorValue == null
-                                  ? Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer
-                                  : Color(account.colorValue!),
-                              child: Icon(
-                                moneyIconForCodePoint(account.iconCodePoint),
-                              ),
-                            ),
-                            if (account.isPrimary)
-                              Positioned(
-                                right: 0,
-                                bottom: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.all(2),
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.brand,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.star,
-                                    size: 10,
-                                    color: AppColors.lightText,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                account.name,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (account.isPrimary) ...[
-                              const SizedBox(width: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.brand.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'Primary',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.brand,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        subtitle: Text(_accountTypeName(account.type)),
-                        trailing: Text(
-                          formatMinorUnits(
-                            balances[account.id] ?? account.openingBalanceMinor,
-                          ),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
           const SizedBox(height: 24),
           SectionHeader(
             title: 'Spending analytics',
