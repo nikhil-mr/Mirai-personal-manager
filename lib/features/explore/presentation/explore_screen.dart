@@ -38,9 +38,10 @@ class ExploreScreen extends StatelessWidget {
                     tint: AppColors.brand,
                   ),
                   FeatureCard(
-                    icon: Icons.shopping_basket_outlined,
-                    title: 'Grocery Basket',
-                    description: 'Keep grocery baskets, track quantities and purchases, and connect spending to Money.',
+                    icon: Icons.inventory_2_outlined,
+                    title: 'Inventory',
+                    description:
+                        'Track items at home, monitor low-stock items, manage shopping lists, and connect spending to Money.',
                     route: AppRoutes.groceries,
                     tint: AppColors.warning,
                   ),

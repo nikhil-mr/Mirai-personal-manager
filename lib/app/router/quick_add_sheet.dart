@@ -57,8 +57,8 @@ class _QuickAddSheet extends StatelessWidget {
       ),
       _QuickAddAction(
         'Item',
-        'Add to your grocery basket',
-        Icons.shopping_basket_rounded,
+        'Add to inventory or shopping list',
+        Icons.inventory_2_rounded,
         const Color(0xFF00BFF3),
         const Color(0xFF0057B8),
         (context, ref) => _go(context, AppRoutes.groceries),

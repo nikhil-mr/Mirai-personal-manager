@@ -1,1113 +1,1768 @@
+// ignore_for_file: non_const_argument_for_const_parameter
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../app/theme/app_colors.dart';
+import '../../../core/widgets/brutal_card.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/page_container.dart';
-import '../../money/application/money_providers.dart';
+import '../../../core/widgets/section_header.dart';
 import '../../money/data/money_database.dart';
-import '../../money/domain/money_models.dart';
 import '../application/grocery_providers.dart';
 import '../data/grocery_repository.dart';
 
+enum StockStatus {
+  wellStocked('Well stocked', Color(0xFF22C55E)),
+  good('Good', Color(0xFFEAB308)),
+  low('Low', Color(0xFFF97316)),
+  veryLow('Very low', Color(0xFFEF4444)),
+  outOfStock('Out of stock', Color(0xFFDC2626));
+
+  const StockStatus(this.label, this.color);
+  final String label;
+  final Color color;
+}
+
+StockStatus calculateStockStatus(
+  double currentQty,
+  double targetQty, {
+  double lowStockThreshold = 0,
+}) {
+  if (currentQty <= 0) {
+    return StockStatus.outOfStock;
+  }
+  if (targetQty <= 0) {
+    if (lowStockThreshold > 0 && currentQty <= lowStockThreshold) {
+      return StockStatus.low;
+    }
+    return StockStatus.wellStocked;
+  }
+  final pct = (currentQty / targetQty) * 100;
+  if (pct >= 75) return StockStatus.wellStocked;
+  if (pct >= 50) return StockStatus.good;
+  if (pct >= 25) return StockStatus.low;
+  return StockStatus.veryLow;
+}
+
+double calculateStockPercentage(double currentQty, double targetQty) {
+  if (targetQty <= 0) return currentQty > 0 ? 100.0 : 0.0;
+  final pct = (currentQty / targetQty) * 100;
+  return pct.clamp(0.0, 100.0);
+}
+
+String formatMilliQty(int milli, String unit) {
+  final val = milli / 1000.0;
+  if (val == val.roundToDouble()) {
+    return '${val.toInt()} $unit';
+  }
+  return '${val.toStringAsFixed(1)} $unit';
+}
+
+class StockProgressBar extends StatelessWidget {
+  const StockProgressBar({
+    required this.currentQty,
+    required this.targetQty,
+    this.lowStockThreshold = 0,
+    this.height = 6,
+    super.key,
+  });
+
+  final double currentQty;
+  final double targetQty;
+  final double lowStockThreshold;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final trackColor = isDark
+        ? const Color(0xFF333333)
+        : const Color(0xFFE0E0E0);
+    final status = calculateStockStatus(
+      currentQty,
+      targetQty,
+      lowStockThreshold: lowStockThreshold,
+    );
+    final pct = calculateStockPercentage(currentQty, targetQty);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(height / 2),
+      child: Stack(
+        children: [
+          Container(height: height, color: trackColor),
+          FractionallySizedBox(
+            widthFactor: pct / 100.0,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              height: height,
+              decoration: BoxDecoration(
+                color: status.color,
+                borderRadius: BorderRadius.circular(height / 2),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+IconData inventoryIconForCodePoint(int? codePoint) {
+  const icons = <IconData>[
+    Icons.shopping_bag_outlined,
+    Icons.soap_outlined,
+    Icons.cleaning_services_outlined,
+    Icons.medication_outlined,
+    Icons.edit_note_outlined,
+    Icons.local_dining_outlined,
+    Icons.kitchen_outlined,
+    Icons.category_outlined,
+    Icons.inventory_2_outlined,
+    Icons.shopping_basket_outlined,
+    Icons.sanitizer_outlined,
+    Icons.medical_services_outlined,
+    Icons.draw_outlined,
+    Icons.add_circle_outline,
+  ];
+  return icons.firstWhere(
+    (icon) => icon.codePoint == codePoint,
+    orElse: () => Icons.inventory_2_outlined,
+  );
+}
+
 class GroceriesScreen extends ConsumerStatefulWidget {
   const GroceriesScreen({super.key});
+
   @override
   ConsumerState<GroceriesScreen> createState() => _GroceriesScreenState();
 }
 
 class _GroceriesScreenState extends ConsumerState<GroceriesScreen> {
-  String? _selectedListId;
-  String _query = '';
-  String _status = 'All';
-  String _category = 'All';
-  String _sort = 'Recently added';
-  bool _showInventory = true;
-  String _inventoryLocation = 'All locations';
-  String _expiryFilter = 'All expiry dates';
-  bool _showArchived = false;
-  final Set<String> _purchaseSelection = {};
+  int _tabIndex = 0; // 0 = My Inventory, 1 = Shopping List
+  String _searchQuery = '';
+  InventoryCategory? _selectedCategory;
+  String _selectedStatusFilter = 'All';
+  String _selectedSortOrder = 'Name: A → Z';
 
-  Widget _inventoryBody(List<GroceryList> lists) {
+  final _units = const [
+    'kg',
+    'g',
+    'L',
+    'ml',
+    'Piece',
+    'Pack',
+    'Bottle',
+    'Box',
+    'Packet',
+    'Tube',
+    'Can',
+    'Dozen',
+    'Other',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final categoriesAsync = ref.watch(inventoryCategoriesProvider);
     final inventoryAsync = ref.watch(homeInventoryProvider);
-    return inventoryAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Text('Could not load home inventory: $error'),
-      data: (allItems) {
-        final locations = allItems.map((item) => item.location).toSet().toList()
-          ..sort();
-        final now = DateUtils.dateOnly(DateTime.now());
-        final soon = now.add(const Duration(days: 7));
-        final query = _query.trim().toLowerCase();
-        final items =
-            allItems.where((item) {
-              final locationMatch =
-                  _inventoryLocation == 'All locations' ||
-                  item.location == _inventoryLocation;
-              final expiry = item.expiryAt == null
-                  ? null
-                  : DateUtils.dateOnly(item.expiryAt!.toLocal());
-              final expiryMatch = switch (_expiryFilter) {
-                'Expiring soon' =>
-                  expiry != null &&
-                      !expiry.isBefore(now) &&
-                      !expiry.isAfter(soon),
-                'Expired' => expiry != null && expiry.isBefore(now),
-                'No expiry date' => expiry == null,
-                _ => true,
-              };
-              final textMatch =
-                  query.isEmpty ||
-                  '${item.name} ${item.notes}'.toLowerCase().contains(query);
-              final categoryMatch =
-                  _category == 'All' || item.category == _category;
-              return locationMatch && expiryMatch && textMatch && categoryMatch;
-            }).toList()..sort((a, b) {
-              if (_sort == 'Name') {
-                return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-              }
-              if (_sort == 'Recently added') {
-                return b.createdAt.compareTo(a.createdAt);
-              }
-              return (a.expiryAt ?? DateTime(9999)).compareTo(
-                b.expiryAt ?? DateTime(9999),
-              );
-            });
-        final categories =
-            allItems.map((item) => item.category).toSet().toList()..sort();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final listsAsync = ref.watch(groceryListsProvider);
+
+    return Scaffold(
+      body: PageContainer(
+        child: Column(
           children: [
+            const SizedBox(height: 8),
+            // Header
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Inventory',
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Keep track of what you have at home.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: isDark
+                              ? AppColors.darkSecondaryText
+                              : AppColors.lightSecondaryText,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Manage categories',
+                  icon: const Icon(Icons.category_outlined),
+                  onPressed: () => _showCategoryManagementSheet(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Search Bar
+            TextField(
+              decoration: InputDecoration(
+                hintText: 'Search items or categories...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setState(() => _searchQuery = ''),
+                      )
+                    : null,
+                isDense: true,
+              ),
+              onChanged: (val) => setState(() => _searchQuery = val),
+            ),
+            const SizedBox(height: 14),
+
+            // Segmented Selector (My Inventory / Shopping List)
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(
+                  value: 0,
+                  label: Text('My Inventory'),
+                  icon: Icon(Icons.inventory_2_outlined),
+                ),
+                ButtonSegment(
+                  value: 1,
+                  label: Text('Shopping List'),
+                  icon: Icon(Icons.shopping_cart_outlined),
+                ),
+              ],
+              selected: {_tabIndex},
+              onSelectionChanged: (val) =>
+                  setState(() => _tabIndex = val.first),
+            ),
+            const SizedBox(height: 16),
+
+            // Main Body Content
+            Expanded(
+              child: _tabIndex == 0
+                  ? _buildInventoryView(
+                      context,
+                      categoriesAsync,
+                      inventoryAsync,
+                      isDark,
+                    )
+                  : _buildShoppingListView(context, listsAsync, isDark),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.brand,
+        foregroundColor: AppColors.lightText,
+        onPressed: () => _showFabActionSheet(context),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // INVENTORY VIEW (DASHBOARD & CATEGORY ITEM LIST)
+  // ---------------------------------------------------------------------------
+  Widget _buildInventoryView(
+    BuildContext context,
+    AsyncValue<List<InventoryCategory>> categoriesAsync,
+    AsyncValue<List<HomeInventoryItem>> inventoryAsync,
+    bool isDark,
+  ) {
+    return categoriesAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Could not load categories: $e')),
+      data: (categories) => inventoryAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Could not load inventory: $e')),
+        data: (allItems) {
+          // If a category is selected or searching or filtering, show Item List View
+          if (_selectedCategory != null ||
+              _selectedStatusFilter != 'All' ||
+              _searchQuery.trim().isNotEmpty) {
+            return _buildCategoryItemList(
+              context,
+              categories,
+              allItems,
+              isDark,
+            );
+          }
+
+          // Otherwise show Dashboard
+          return _buildDashboardView(context, categories, allItems, isDark);
+        },
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SCREEN 1: DASHBOARD VIEW
+  // ---------------------------------------------------------------------------
+  Widget _buildDashboardView(
+    BuildContext context,
+    List<InventoryCategory> categories,
+    List<HomeInventoryItem> allItems,
+    bool isDark,
+  ) {
+    final totalCount = allItems.length;
+    var wellStockedCount = 0;
+    var lowStockCount = 0;
+    var outOfStockCount = 0;
+
+    final lowStockItems = <HomeInventoryItem>[];
+
+    for (final item in allItems) {
+      final status = calculateStockStatus(
+        item.quantityMilli / 1000.0,
+        item.targetQuantityMilli / 1000.0,
+        lowStockThreshold: item.lowStockThresholdMilli / 1000.0,
+      );
+      if (status == StockStatus.wellStocked || status == StockStatus.good) {
+        wellStockedCount++;
+      } else if (status == StockStatus.low || status == StockStatus.veryLow) {
+        lowStockCount++;
+        lowStockItems.add(item);
+      } else if (status == StockStatus.outOfStock) {
+        outOfStockCount++;
+        lowStockItems.add(item);
+      }
+    }
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Categories Header
+          SectionHeader(
+            title: 'Categories',
+            action: TextButton(
+              onPressed: () => _showCategoryManagementSheet(context),
+              child: const Text('Manage'),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Categories Grid
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final crossCount = constraints.maxWidth > 600 ? 3 : 2;
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: categories.length + 1, // +1 for Add Category tile
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossCount,
+                  mainAxisExtent: 80,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                ),
+                itemBuilder: (context, i) {
+                  if (i == categories.length) {
+                    // Add Category Tile
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => _showCategoryEditDialog(context),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isDark ? AppColors.darkCard : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
+                            width: 1.5,
+                          ),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.add_circle_outline,
+                              color: AppColors.brand,
+                              size: 24,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Add Category',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  final cat = categories[i];
+                  final catItemCount = allItems
+                      .where(
+                        (item) =>
+                            item.categoryId == cat.id ||
+                            item.category.toLowerCase() ==
+                                cat.name.toLowerCase(),
+                      )
+                      .length;
+
+                  final bg = Color(cat.colorValue);
+
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => setState(() => _selectedCategory = cat),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: bg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF111111),
+                          width: 1.5,
+                        ),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            inventoryIconForCodePoint(cat.iconCodePoint),
+                            size: 24,
+                            color: const Color(0xFF111111),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  cat.name,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF111111),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  '$catItemCount items',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF333333),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right,
+                            size: 20,
+                            color: Color(0xFF111111),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+
+          // Stock Status Summary
+          SectionHeader(title: 'Stock Summary'),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildSummaryChip(
+                label: 'Total',
+                count: totalCount,
+                color: isDark ? AppColors.darkCard : Colors.white,
+                textColor: isDark ? AppColors.darkText : AppColors.lightText,
+                onTap: () => setState(() => _selectedStatusFilter = 'All'),
+              ),
+              const SizedBox(width: 8),
+              _buildSummaryChip(
+                label: 'Well stocked',
+                count: wellStockedCount,
+                color: const Color(0xFF22C55E).withValues(alpha: 0.2),
+                textColor: const Color(0xFF22C55E),
+                onTap: () =>
+                    setState(() => _selectedStatusFilter = 'Well stocked'),
+              ),
+              const SizedBox(width: 8),
+              _buildSummaryChip(
+                label: 'Low stock',
+                count: lowStockCount,
+                color: const Color(0xFFF97316).withValues(alpha: 0.2),
+                textColor: const Color(0xFFF97316),
+                onTap: () =>
+                    setState(() => _selectedStatusFilter = 'Low stock'),
+              ),
+              const SizedBox(width: 8),
+              _buildSummaryChip(
+                label: 'Out of stock',
+                count: outOfStockCount,
+                color: const Color(0xFFDC2626).withValues(alpha: 0.2),
+                textColor: const Color(0xFFDC2626),
+                onTap: () =>
+                    setState(() => _selectedStatusFilter = 'Out of stock'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Recently Low / Out of Stock
+          SectionHeader(
+            title: 'Recently low / out of stock',
+            action: lowStockItems.isNotEmpty
+                ? TextButton(
+                    onPressed: () =>
+                        setState(() => _selectedStatusFilter = 'Low stock'),
+                    child: const Text('See all'),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 8),
+          if (lowStockItems.isEmpty)
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
+                padding: const EdgeInsets.all(16),
+                child: Row(
                   children: [
-                    Text(
-                      '${allItems.length} items at home',
-                      style: Theme.of(context).textTheme.titleMedium,
+                    const Icon(
+                      Icons.check_circle_outline,
+                      color: Color(0xFF22C55E),
+                      size: 28,
                     ),
-                    Text(
-                      '${allItems.where((item) => item.expiryAt != null && DateUtils.dateOnly(item.expiryAt!.toLocal()).isBefore(now)).length} expired',
-                    ),
-                    Text(
-                      '${allItems.where((item) {
-                        final d = item.expiryAt == null ? null : DateUtils.dateOnly(item.expiryAt!.toLocal());
-                        return d != null && !d.isBefore(now) && !d.isAfter(soon);
-                      }).length} expiring within 7 days',
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'All items well stocked!',
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            'No low or out of stock items found.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search inventory name or notes',
-              ),
-              onChanged: (value) => setState(() => _query = value),
-            ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
+            )
+          else
+            Column(
               children: [
-                DropdownButton<String>(
-                  value:
-                      _inventoryLocation == 'All locations' ||
-                          locations.contains(_inventoryLocation)
-                      ? _inventoryLocation
-                      : 'All locations',
-                  items: ['All locations', ...locations]
-                      .map(
-                        (value) =>
-                            DropdownMenuItem(value: value, child: Text(value)),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(
-                    () => _inventoryLocation = value ?? 'All locations',
+                for (final item in lowStockItems.take(4))
+                  _buildInventoryItemTile(context, item, isDark),
+              ],
+            ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryChip({
+    required String label,
+    required int count,
+    required Color color,
+    required Color textColor,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: textColor.withValues(alpha: 0.3),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(fontSize: 10, color: textColor),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SCREEN 2: CATEGORY ITEM LIST / FILTERED LIST
+  // ---------------------------------------------------------------------------
+  Widget _buildCategoryItemList(
+    BuildContext context,
+    List<InventoryCategory> categories,
+    List<HomeInventoryItem> allItems,
+    bool isDark,
+  ) {
+    final query = _searchQuery.trim().toLowerCase();
+
+    var filtered = allItems.where((item) {
+      if (_selectedCategory != null) {
+        final catMatch =
+            item.categoryId == _selectedCategory!.id ||
+            item.category.toLowerCase() ==
+                _selectedCategory!.name.toLowerCase();
+        if (!catMatch) return false;
+      }
+
+      final status = calculateStockStatus(
+        item.quantityMilli / 1000.0,
+        item.targetQuantityMilli / 1000.0,
+        lowStockThreshold: item.lowStockThresholdMilli / 1000.0,
+      );
+
+      if (_selectedStatusFilter == 'Well stocked' &&
+          status != StockStatus.wellStocked &&
+          status != StockStatus.good) {
+        return false;
+      }
+      if (_selectedStatusFilter == 'Low stock' &&
+          status != StockStatus.low &&
+          status != StockStatus.veryLow) {
+        return false;
+      }
+      if (_selectedStatusFilter == 'Out of stock' &&
+          status != StockStatus.outOfStock) {
+        return false;
+      }
+
+      if (query.isNotEmpty) {
+        final match =
+            item.name.toLowerCase().contains(query) ||
+            item.category.toLowerCase().contains(query) ||
+            item.notes.toLowerCase().contains(query);
+        if (!match) return false;
+      }
+
+      return true;
+    }).toList();
+
+    // Sort
+    filtered.sort((a, b) {
+      final aCurrent = a.quantityMilli / 1000.0;
+      final aTarget = a.targetQuantityMilli / 1000.0;
+      final bCurrent = b.quantityMilli / 1000.0;
+      final bTarget = b.targetQuantityMilli / 1000.0;
+
+      switch (_selectedSortOrder) {
+        case 'Name: A → Z':
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case 'Name: Z → A':
+          return b.name.toLowerCase().compareTo(a.name.toLowerCase());
+        case 'Quantity: Low → High':
+          return a.quantityMilli.compareTo(b.quantityMilli);
+        case 'Quantity: High → Low':
+          return b.quantityMilli.compareTo(a.quantityMilli);
+        case 'Stock level: Low → High':
+          return calculateStockPercentage(
+            aCurrent,
+            aTarget,
+          ).compareTo(calculateStockPercentage(bCurrent, bTarget));
+        case 'Stock level: High → Low':
+          return calculateStockPercentage(
+            bCurrent,
+            bTarget,
+          ).compareTo(calculateStockPercentage(aCurrent, aTarget));
+        case 'Recently added':
+          return b.createdAt.compareTo(a.createdAt);
+        case 'Expiry date: Earliest first':
+          return (a.expiryAt ?? DateTime(9999)).compareTo(
+            b.expiryAt ?? DateTime(9999),
+          );
+        case 'Expiry date: Latest first':
+          return (b.expiryAt ?? DateTime(0)).compareTo(
+            a.expiryAt ?? DateTime(0),
+          );
+        default:
+          return a.name.compareTo(b.name);
+      }
+    });
+
+    final titleText = _selectedCategory != null
+        ? _selectedCategory!.name
+        : (_selectedStatusFilter != 'All'
+              ? '$_selectedStatusFilter Items'
+              : 'Inventory Items');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Category Header Controls
+        Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => setState(() {
+                _selectedCategory = null;
+                _selectedStatusFilter = 'All';
+                _searchQuery = '';
+              }),
+            ),
+            if (_selectedCategory != null) ...[
+              Icon(
+                inventoryIconForCodePoint(_selectedCategory!.iconCodePoint),
+                size: 22,
+                color: Color(_selectedCategory!.colorValue),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titleText,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    '${filtered.length} items',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark
+                          ? AppColors.darkSecondaryText
+                          : AppColors.lightSecondaryText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Sort items',
+              icon: const Icon(Icons.sort_rounded),
+              onPressed: () => _showSortBottomSheet(context),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // Filter Chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final status in [
+                'All',
+                'Well stocked',
+                'Low stock',
+                'Out of stock',
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(status),
+                    selected: _selectedStatusFilter == status,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() => _selectedStatusFilter = status);
+                      }
+                    },
                   ),
                 ),
-                DropdownButton<String>(
-                  value: _expiryFilter,
-                  items:
-                      const [
-                            'All expiry dates',
-                            'Expiring soon',
-                            'Expired',
-                            'No expiry date',
-                          ]
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(value),
-                            ),
-                          )
-                          .toList(),
-                  onChanged: (value) => setState(
-                    () => _expiryFilter = value ?? 'All expiry dates',
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Items List
+        Expanded(
+          child: filtered.isEmpty
+              ? const EmptyState(
+                  icon: Icons.inventory_2_outlined,
+                  title: 'No items found',
+                  message: 'Try adjusting your search or filters.',
+                  compact: true,
+                )
+              : ListView.builder(
+                  itemCount: filtered.length,
+                  itemBuilder: (context, index) {
+                    final item = filtered[index];
+                    return _buildInventoryItemTile(context, item, isDark);
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInventoryItemTile(
+    BuildContext context,
+    HomeInventoryItem item,
+    bool isDark,
+  ) {
+    final currentQty = item.quantityMilli / 1000.0;
+    final targetQty = item.targetQuantityMilli / 1000.0;
+    final lowThreshold = item.lowStockThresholdMilli / 1000.0;
+
+    final status = calculateStockStatus(
+      currentQty,
+      targetQty,
+      lowStockThreshold: lowThreshold,
+    );
+    final pct = calculateStockPercentage(currentQty, targetQty);
+
+    final String qtyDisplay = targetQty > 0
+        ? '${formatMilliQty(item.quantityMilli, item.unit)} / ${formatMilliQty(item.targetQuantityMilli, item.unit)}'
+        : formatMilliQty(item.quantityMilli, item.unit);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: BrutalCard(
+        padding: const EdgeInsets.all(12),
+        onTap: () => _showItemDetailsDialog(context, item),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: status.color.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    inventoryIconForCodePoint(item.iconCodePoint),
+                    color: status.color,
+                    size: 20,
                   ),
                 ),
-                DropdownButton<String>(
-                  value: categories.contains(_category) || _category == 'All'
-                      ? _category
-                      : 'All',
-                  items: ['All', ...categories]
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(
-                            value == 'All' ? 'All categories' : value,
-                          ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) =>
-                      setState(() => _category = value ?? 'All'),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${item.category} · $qtyDisplay',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark
+                              ? AppColors.darkSecondaryText
+                              : AppColors.lightSecondaryText,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                DropdownButton<String>(
-                  value: _sort,
-                  items: const ['Recently added', 'Name', 'Expiry date']
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text('Sort: $value'),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: status.color.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        status.label,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: status.color,
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() => _sort = value ?? _sort),
+                      ),
+                    ),
+                    if (targetQty > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${pct.toStringAsFixed(0)}%',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: status.color,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
-            if (items.isEmpty)
-              const EmptyState(
-                icon: Icons.kitchen_outlined,
-                title: 'No inventory items found',
-                message: 'Add what you currently have at home, or adjust the filters.',
-              )
-            else
-              for (final item in items) _inventoryCard(item, lists),
+            if (targetQty > 0) ...[
+              const SizedBox(height: 8),
+              StockProgressBar(
+                currentQty: currentQty,
+                targetQty: targetQty,
+                lowStockThreshold: lowThreshold,
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SHOPPING LIST VIEW
+  // ---------------------------------------------------------------------------
+  Widget _buildShoppingListView(
+    BuildContext context,
+    AsyncValue<List<GroceryList>> listsAsync,
+    bool isDark,
+  ) {
+    return listsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Could not load shopping lists: $e')),
+      data: (lists) {
+        if (lists.isEmpty) {
+          return EmptyState(
+            icon: Icons.shopping_bag_outlined,
+            title: 'No shopping lists yet',
+            message: 'Create a list to plan your next trip.',
+            action: FilledButton.icon(
+              onPressed: () => _showAddListDialog(context),
+              icon: const Icon(Icons.add),
+              label: const Text('Create Shopping List'),
+            ),
+          );
+        }
+
+        final currentList = lists.first;
+        final itemsAsync = ref.watch(groceryItemsProvider(currentList.id));
+
+        return itemsAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text('Could not load items: $e')),
+          data: (items) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        currentList.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add),
+                      onPressed: () =>
+                          _showAddShoppingItemDialog(context, currentList.id),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: items.isEmpty
+                      ? EmptyState(
+                          icon: Icons.shopping_basket_outlined,
+                          title: 'List is empty',
+                          message: 'Add items you need to buy.',
+                          action: FilledButton.icon(
+                            onPressed: () => _showAddShoppingItemDialog(
+                              context,
+                              currentList.id,
+                            ),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add Item'),
+                          ),
+                          compact: true,
+                        )
+                      : ListView.builder(
+                          itemCount: items.length,
+                          itemBuilder: (context, i) {
+                            final item = items[i];
+                            return Card(
+                              child: CheckboxListTile(
+                                value: item.isPurchased,
+                                title: Text(
+                                  item.name,
+                                  style: TextStyle(
+                                    decoration: item.isPurchased
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  formatMilliQty(item.quantityMilli, item.unit),
+                                ),
+                                onChanged: (val) async {
+                                  if (val != null) {
+                                    await ref
+                                        .read(groceryRepositoryProvider)
+                                        .setPurchased(item.id, purchased: val);
+                                    if (val && context.mounted) {
+                                      _promptUpdateInventoryFromPurchase(
+                                        context,
+                                        item,
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
-  Widget _inventoryCard(HomeInventoryItem item, List<GroceryList> lists) {
-    final expiryDate = item.expiryAt?.toLocal();
-    final expired =
-        expiryDate != null &&
-        DateUtils.dateOnly(expiryDate)
-            .isBefore(DateUtils.dateOnly(DateTime.now()));
-    final expiring =
-        expiryDate != null &&
-        !expired &&
-        !DateUtils.dateOnly(expiryDate).isAfter(
-          DateUtils.dateOnly(DateTime.now()).add(const Duration(days: 7)),
-        );
-    final details = <String>[
-      '${_quantityText(item.quantityMilli)} ${item.unit}',
-      item.category,
-      item.location,
-    ];
-    if (expiryDate != null) {
-      details.add(
-        '${expired
-            ? 'Expired'
-            : expiring
-            ? 'Expires soon'
-            : 'Best before'} ${DateFormat.yMMMd().format(expiryDate)}',
-      );
-    }
-    if (item.unitCostMinor != null) {
-      details.add('Unit cost ${formatMinorUnits(item.unitCostMinor!)}');
-    }
-    if (item.notes.isNotEmpty) {
-      details.add(item.notes);
-    }
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(child: Icon(_categoryIcon(item.category))),
-        title: Text(
-          item.name,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-        subtitle: Text(details.join(' · ')),
-        trailing: PopupMenuButton<String>(
-          tooltip: 'Inventory item actions',
-          onSelected: (action) async {
-            switch (action) {
-              case 'edit':
-                await _editInventoryItem(item: item);
-                break;
-              case 'quantity':
-                await _adjustInventory(item);
-                break;
-              case 'move':
-                await _moveInventory(item);
-                break;
-              case 'shopping':
-                await _addInventoryToShopping(item, lists);
-                break;
-              case 'used':
-                await ref
-                    .read(groceryRepositoryProvider)
-                    .adjustInventoryQuantity(item.id, 0);
-                break;
-              case 'delete':
-                if (await _confirm(
-                      'Delete ${item.name}?',
-                      'Remove this inventory record?',
-                    ) ==
-                    true) {
-                  await ref
-                      .read(groceryRepositoryProvider)
-                      .deleteInventoryItem(item.id);
-                }
-                break;
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'edit', child: Text('Edit item')),
-            PopupMenuItem(value: 'quantity', child: Text('Change quantity')),
-            PopupMenuItem(value: 'move', child: Text('Move storage location')),
-            PopupMenuItem(value: 'shopping', child: Text('Add to Basket')),
-            PopupMenuItem(value: 'used', child: Text('Mark as used up')),
-            PopupMenuItem(value: 'delete', child: Text('Delete item')),
-          ],
-        ),
-      ),
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // SCREEN 3: ADD / EDIT INVENTORY ITEM FORM
+  // ---------------------------------------------------------------------------
+  void _showAddOrEditItemForm(
+    BuildContext context, {
+    HomeInventoryItem? editItem,
+  }) {
+    final categories =
+        ref.read(inventoryCategoriesProvider).asData?.value ?? [];
 
-  IconData _categoryIcon(String category) => switch (category.toLowerCase()) {
-    'fruits' => Icons.apple_outlined,
-    'vegetables' => Icons.eco_outlined,
-    'dairy' => Icons.egg_outlined,
-    'meat and seafood' => Icons.set_meal_outlined,
-    'beverages' => Icons.local_drink_outlined,
-    'snacks' => Icons.cookie_outlined,
-    'household essentials' => Icons.cleaning_services_outlined,
-    _ => Icons.inventory_2_outlined,
-  };
+    final nameController = TextEditingController(text: editItem?.name ?? '');
+    final currentQtyController = TextEditingController(
+      text: editItem != null
+          ? (editItem.quantityMilli / 1000.0).toString()
+          : '1',
+    );
+    final targetQtyController = TextEditingController(
+      text: editItem != null && editItem.targetQuantityMilli > 0
+          ? (editItem.targetQuantityMilli / 1000.0).toString()
+          : '',
+    );
+    final lowThresholdController = TextEditingController(
+      text: editItem != null && editItem.lowStockThresholdMilli > 0
+          ? (editItem.lowStockThresholdMilli / 1000.0).toString()
+          : '',
+    );
+    final notesController = TextEditingController(text: editItem?.notes ?? '');
 
-  Future<void> _editInventoryItem({HomeInventoryItem? item}) async {
-    final name = TextEditingController(text: item?.name ?? '');
-    final quantity = TextEditingController(
-      text: _quantityText(item?.quantityMilli ?? 1000),
-    );
-    final unit = TextEditingController(text: item?.unit ?? 'Piece');
-    final category = TextEditingController(text: item?.category ?? 'Other');
-    final location = TextEditingController(text: item?.location ?? 'Pantry');
-    final cost = TextEditingController(
-      text: item?.unitCostMinor == null ? '' : _minorText(item!.unitCostMinor!),
-    );
-    final notes = TextEditingController(text: item?.notes ?? '');
-    DateTime? expiry = item?.expiryAt;
-    DateTime? purchased = item?.purchasedAt;
-    var error = '';
-    final input = await showDialog<InventoryItemInput>(
+    String selectedUnit = editItem?.unit ?? 'Piece';
+    if (!_units.contains(selectedUnit)) selectedUnit = 'Other';
+
+    InventoryCategory? selectedCat;
+    if (editItem != null) {
+      selectedCat =
+          categories.where((c) => c.id == editItem.categoryId).firstOrNull ??
+          categories
+              .where(
+                (c) => c.name.toLowerCase() == editItem.category.toLowerCase(),
+              )
+              .firstOrNull;
+    }
+    selectedCat ??= categories.firstOrNull;
+
+    DateTime? selectedExpiry = editItem?.expiryAt;
+
+    showModalBottomSheet(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, refresh) => AlertDialog(
-          title: Text(
-            item == null ? 'Add inventory item' : 'Edit inventory item',
-          ),
-          content: SizedBox(
-            width: 480,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final currentVal = double.tryParse(currentQtyController.text) ?? 0.0;
+          final targetVal = double.tryParse(targetQtyController.text) ?? 0.0;
+          final lowVal = double.tryParse(lowThresholdController.text) ?? 0.0;
+
+          final status = calculateStockStatus(
+            currentVal,
+            targetVal,
+            lowStockThreshold: lowVal,
+          );
+
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+              top: 16,
+              left: 16,
+              right: 16,
+            ),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(
-                    controller: name,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: 'Item name *'),
+                  Row(
+                    children: [
+                      Text(
+                        editItem == null ? 'Add Inventory Item' : 'Edit Item',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 12),
+
+                  // Item Name
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Item Name *',
+                      hintText: 'e.g. Rice, Milk, Shampoo',
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Category Dropdown
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<InventoryCategory>(
+                          value: selectedCat,
+                          decoration: const InputDecoration(
+                            labelText: 'Category *',
+                            isDense: true,
+                          ),
+                          items: categories
+                              .map(
+                                (c) => DropdownMenuItem(
+                                  value: c,
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        inventoryIconForCodePoint(
+                                          c.iconCodePoint,
+                                        ),
+                                        size: 18,
+                                        color: Color(c.colorValue),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(c.name),
+                                    ],
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (val) =>
+                              setModalState(() => selectedCat = val),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Manage categories',
+                        icon: const Icon(Icons.settings_outlined),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _showCategoryManagementSheet(context);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Unit Dropdown
+                  DropdownButtonFormField<String>(
+                    value: selectedUnit,
+                    decoration: const InputDecoration(
+                      labelText: 'Unit *',
+                      isDense: true,
+                    ),
+                    items: _units
+                        .map((u) => DropdownMenuItem(value: u, child: Text(u)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setModalState(() => selectedUnit = val);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Quantities (Current & Target)
                   Row(
                     children: [
                       Expanded(
                         child: TextField(
-                          controller: quantity,
+                          controller: currentQtyController,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
-                          decoration: const InputDecoration(
-                            labelText: 'Quantity *',
+                          decoration: InputDecoration(
+                            labelText: 'Current Qty *',
+                            suffixText: selectedUnit,
+                            isDense: true,
                           ),
+                          onChanged: (_) => setModalState(() {}),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: TextField(
-                          controller: unit,
-                          decoration: const InputDecoration(
-                            labelText: 'Unit *',
-                            hintText: 'Piece, kg, litre, pack...',
+                          controller: targetQtyController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Target Qty',
+                            suffixText: selectedUnit,
+                            isDense: true,
+                          ),
+                          onChanged: (_) => setModalState(() {}),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Low stock threshold & Expiry date
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: lowThresholdController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Low Stock Alert Qty',
+                            suffixText: selectedUnit,
+                            isDense: true,
+                          ),
+                          onChanged: (_) => setModalState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedExpiry ?? DateTime.now(),
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked != null) {
+                              setModalState(() => selectedExpiry = picked);
+                            }
+                          },
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                          label: Text(
+                            selectedExpiry != null
+                                ? DateFormat.yMd().format(selectedExpiry!)
+                                : 'Expiry Date',
+                            style: const TextStyle(fontSize: 12),
                           ),
                         ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
+
+                  // Notes
                   TextField(
-                    controller: category,
+                    controller: notesController,
                     decoration: const InputDecoration(
-                      labelText: 'Category',
-                      hintText: 'Fruits, dairy, household...',
+                      labelText: 'Notes',
+                      isDense: true,
                     ),
                   ),
-                  TextField(
-                    controller: location,
-                    decoration: const InputDecoration(
-                      labelText: 'Storage location *',
-                      hintText: 'Fridge, freezer, pantry...',
-                    ),
-                  ),
-                  TextField(
-                    controller: cost,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Unit cost (optional)',
-                      prefixText: '₹',
-                    ),
-                  ),
-                  TextField(
-                    controller: notes,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes (optional)',
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(
-                      spacing: 4,
+                  const SizedBox(height: 16),
+
+                  // Live Stock Preview Card
+                  BrutalCard(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextButton.icon(
-                          onPressed: () async {
-                            final date = await showDatePicker(
-                              context: dialogContext,
-                              firstDate: DateTime(2000),
-                              lastDate: DateTime(2200),
-                              initialDate: expiry ?? DateTime.now(),
-                            );
-                            if (date != null) refresh(() => expiry = date);
-                          },
-                          icon: const Icon(Icons.event),
-                          label: Text(
-                            expiry == null
-                                ? 'Expiry date'
-                                : 'Expires ${DateFormat.yMMMd().format(expiry!.toLocal())}',
+                        const Text(
+                          'Stock Preview',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        if (expiry != null)
-                          IconButton(
-                            tooltip: 'Remove expiry date',
-                            onPressed: () => refresh(() => expiry = null),
-                            icon: const Icon(Icons.close),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Text(
+                              targetVal > 0
+                                  ? '$currentVal / $targetVal $selectedUnit'
+                                  : '$currentVal $selectedUnit',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: status.color.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                status.label,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: status.color,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (targetVal > 0) ...[
+                          const SizedBox(height: 6),
+                          StockProgressBar(
+                            currentQty: currentVal,
+                            targetQty: targetVal,
+                            lowStockThreshold: lowVal,
                           ),
+                        ],
                       ],
                     ),
                   ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(
-                      spacing: 4,
-                      children: [
-                        TextButton.icon(
-                          onPressed: () async {
-                            final date = await showDatePicker(
-                              context: dialogContext,
-                              firstDate: DateTime(2000),
-                              lastDate: DateTime(2200),
-                              initialDate: purchased ?? DateTime.now(),
-                            );
-                            if (date != null) refresh(() => purchased = date);
-                          },
-                          icon: const Icon(Icons.shopping_bag_outlined),
-                          label: Text(
-                            purchased == null
-                                ? 'Purchase date (optional)'
-                                : 'Bought ${DateFormat.yMMMd().format(purchased!.toLocal())}',
-                          ),
-                        ),
-                        if (purchased != null)
-                          IconButton(
-                            tooltip: 'Remove purchase date',
-                            onPressed: () => refresh(() => purchased = null),
-                            icon: const Icon(Icons.close),
-                          ),
-                      ],
-                    ),
-                  ),
-                  if (error.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        error,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
+                  const SizedBox(height: 18),
+
+                  // Save Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.brand,
+                        foregroundColor: AppColors.lightText,
                       ),
+                      onPressed: () async {
+                        final name = nameController.text.trim();
+                        if (name.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please enter an item name.'),
+                            ),
+                          );
+                          return;
+                        }
+
+                        final currentMilli = (currentVal * 1000).round();
+                        final targetMilli = (targetVal * 1000).round();
+                        final lowMilli = (lowVal * 1000).round();
+
+                        try {
+                          await ref
+                              .read(groceryRepositoryProvider)
+                              .saveInventoryItem(
+                                id: editItem?.id,
+                                item: InventoryItemInput(
+                                  name: name,
+                                  quantityMilli: currentMilli,
+                                  targetQuantityMilli: targetMilli,
+                                  lowStockThresholdMilli: lowMilli,
+                                  unit: selectedUnit,
+                                  category: selectedCat?.name ?? 'Other',
+                                  categoryId: selectedCat?.id,
+                                  iconCodePoint: selectedCat?.iconCodePoint,
+                                  colorValue: selectedCat?.colorValue,
+                                  expiryAt: selectedExpiry,
+                                  notes: notesController.text.trim(),
+                                ),
+                              );
+                          if (ctx.mounted) Navigator.pop(ctx);
+                        } catch (e) {
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Could not save item: $e'),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      child: const Text('Save Item'),
                     ),
+                  ),
+                  const SizedBox(height: 16),
                 ],
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final parsedQuantity = _parseMilli(quantity.text);
-                final parsedCost = cost.text.trim().isEmpty
-                    ? null
-                    : parseMinorUnits(cost.text);
-                if (name.text.trim().isEmpty ||
-                    parsedQuantity == null ||
-                    parsedQuantity < (item == null ? 1 : 0) ||
-                    unit.text.trim().isEmpty ||
-                    location.text.trim().isEmpty ||
-                    (cost.text.trim().isNotEmpty &&
-                        (parsedCost == null || parsedCost < 0))) {
-                  refresh(
-                    () => error = 'Enter a name, valid quantity, unit and location. Unit cost must be a valid non-negative amount.',
-                  );
-                  return;
-                }
-                Navigator.pop(
-                  dialogContext,
-                  InventoryItemInput(
-                    name: name.text,
-                    quantityMilli: parsedQuantity,
-                    unit: unit.text,
-                    category: category.text,
-                    location: location.text,
-                    expiryAt: expiry,
-                    purchasedAt: purchased,
-                    unitCostMinor: parsedCost,
-                    notes: notes.text,
-                  ),
-                );
-              },
-              child: const Text('Save item'),
-            ),
-          ],
-        ),
-      ),
-    );
-    for (final controller in [
-      name,
-      quantity,
-      unit,
-      category,
-      location,
-      cost,
-      notes,
-    ]) {
-      controller.dispose();
-    }
-    if (input == null || !mounted) return;
-    try {
-      if (item == null) {
-        final duplicates = await ref
-            .read(groceryRepositoryProvider)
-            .findInventoryDuplicates(input.name, input.location);
-        if (duplicates.isNotEmpty && mounted) {
-          final compatible = duplicates
-              .where(
-                (row) =>
-                    row.unit.toLowerCase() == input.unit.trim().toLowerCase(),
-              )
-              .toList();
-          final decision = await showDialog<String>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('This item is already in this location'),
-              content: Text(
-                'There ${duplicates.length == 1 ? 'is' : 'are'} ${duplicates.length} matching inventory entr${duplicates.length == 1 ? 'y' : 'ies'} for ${input.name} in ${input.location}. Choose how to save it.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, 'cancel'),
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, 'separate'),
-                  child: const Text('Keep separate'),
-                ),
-                if (compatible.length == 1)
-                  FilledButton(
-                    onPressed: () => Navigator.pop(ctx, 'merge'),
-                    child: const Text('Increase quantity'),
-                  ),
-              ],
             ),
           );
-          if (decision == 'cancel' || decision == null) return;
-          if (decision == 'merge') {
-            final old = compatible.single;
-            await ref
-                .read(groceryRepositoryProvider)
-                .saveInventoryItem(
-                  id: old.id,
-                  item: InventoryItemInput(
-                    name: old.name,
-                    quantityMilli: old.quantityMilli + input.quantityMilli,
-                    unit: old.unit,
-                    category: input.category,
-                    location: old.location,
-                    expiryAt: input.expiryAt ?? old.expiryAt,
-                    purchasedAt: input.purchasedAt ?? old.purchasedAt,
-                    unitCostMinor: input.unitCostMinor ?? old.unitCostMinor,
-                    notes: input.notes.isEmpty ? old.notes : input.notes,
-                  ),
-                );
-            return;
-          }
-        }
-      }
-      await ref
-          .read(groceryRepositoryProvider)
-          .saveInventoryItem(id: item?.id, item: input);
-    } catch (error) {
-      _message(error.toString());
-    }
+        },
+      ),
+    );
   }
 
-  Future<void> _addMultipleInventoryItems() async {
-    final rows = <_BulkInventoryRow>[_BulkInventoryRow()];
-    String error = '';
-    final result = await showDialog<List<InventoryItemInput>>(
+  // ---------------------------------------------------------------------------
+  // SCREEN 4: ITEM DETAILS & EDITING DIALOG
+  // ---------------------------------------------------------------------------
+  void _showItemDetailsDialog(BuildContext context, HomeInventoryItem item) {
+    showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, refresh) => AlertDialog(
-          title: const Text('Add multiple inventory items'),
-          content: SizedBox(
-            width: 620,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (var i = 0; i < rows.length; i++) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: TextField(
-                            controller: rows[i].name,
-                            decoration: InputDecoration(
-                              labelText: 'Item ${i + 1} *',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: TextField(
-                            controller: rows[i].quantity,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Qty *',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: TextField(
-                            controller: rows[i].unit,
-                            decoration: const InputDecoration(
-                              labelText: 'Unit',
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Remove row',
-                          onPressed: rows.length == 1
-                              ? null
-                              : () => refresh(() => rows.removeAt(i)),
-                          icon: const Icon(Icons.remove_circle_outline),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: rows[i].location,
-                            decoration: const InputDecoration(
-                              labelText: 'Storage location',
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            final date = await showDatePicker(
-                              context: dialogContext,
-                              firstDate: DateTime(2000),
-                              lastDate: DateTime(2200),
-                              initialDate: rows[i].expiryAt ?? DateTime.now(),
-                            );
-                            if (date != null) {
-                              refresh(() => rows[i].expiryAt = date);
-                            }
-                          },
-                          child: Text(
-                            rows[i].expiryAt == null
-                                ? 'Expiry (optional)'
-                                : DateFormat.yMMMd().format(
-                                    rows[i].expiryAt!.toLocal(),
-                                  ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () =>
-                          refresh(() => rows.add(_BulkInventoryRow())),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add another row'),
-                    ),
+      builder: (ctx) => Consumer(
+        builder: (context, ref, _) {
+          final inventory =
+              ref.watch(homeInventoryProvider).asData?.value ?? [];
+          final currentItem =
+              inventory.where((i) => i.id == item.id).firstOrNull ?? item;
+
+          final currentQty = currentItem.quantityMilli / 1000.0;
+          final targetQty = currentItem.targetQuantityMilli / 1000.0;
+          final lowThreshold = currentItem.lowStockThresholdMilli / 1000.0;
+
+          final status = calculateStockStatus(
+            currentQty,
+            targetQty,
+            lowStockThreshold: lowThreshold,
+          );
+          final pct = calculateStockPercentage(currentQty, targetQty);
+
+          final isDiscreteUnit = [
+            'Piece',
+            'Pack',
+            'Bottle',
+            'Box',
+            'Packet',
+            'Tube',
+            'Can',
+            'Dozen',
+          ].contains(currentItem.unit);
+
+          final stepVal = isDiscreteUnit ? 1.0 : 0.5;
+
+          return AlertDialog(
+            title: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: status.color.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
                   ),
-                  if (error.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        error,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                  child: Icon(
+                    inventoryIconForCodePoint(currentItem.iconCodePoint),
+                    color: status.color,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        currentItem.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final parsed = rows
-                    .map((row) => _parseMilli(row.quantity.text))
-                    .toList();
-                if (rows.any(
-                      (row) =>
-                          row.name.text.trim().isEmpty ||
-                          row.unit.text.trim().isEmpty ||
-                          row.location.text.trim().isEmpty,
-                    ) ||
-                    parsed.any((q) => q == null || q <= 0)) {
-                  refresh(
-                    () => error = 'Fix every row: enter an item name, non-negative quantity, unit and location.',
-                  );
-                  return;
-                }
-                Navigator.pop(dialogContext, [
-                  for (var i = 0; i < rows.length; i++)
-                    InventoryItemInput(
-                      name: rows[i].name.text,
-                      quantityMilli: parsed[i]!,
-                      unit: rows[i].unit.text,
-                      category: 'Other',
-                      location: rows[i].location.text,
-                      expiryAt: rows[i].expiryAt,
-                    ),
-                ]);
-              },
-              child: const Text('Save all'),
-            ),
-          ],
-        ),
-      ),
-    );
-    for (final row in rows) {
-      row.dispose();
-    }
-    if (result == null || !mounted) return;
-    try {
-      await ref.read(groceryRepositoryProvider).addInventoryItems(result);
-    } catch (error) {
-      _message('Nothing was saved. $error');
-    }
-  }
-
-  Future<void> _addMultipleShoppingItems(String listId) async {
-    final rows = <_BulkShoppingRow>[_BulkShoppingRow()];
-    String error = '';
-    final result = await showDialog<List<ShoppingItemInput>>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, refresh) => AlertDialog(
-          title: const Text('Add multiple shopping items'),
-          content: SizedBox(
-            width: 620,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (var i = 0; i < rows.length; i++)
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: TextField(
-                            controller: rows[i].name,
-                            decoration: InputDecoration(
-                              labelText: 'Item ${i + 1} *',
-                            ),
-                          ),
+                      Text(
+                        currentItem.category,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.darkSecondaryText,
                         ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: TextField(
-                            controller: rows[i].quantity,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Qty *',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: TextField(
-                            controller: rows[i].unit,
-                            decoration: const InputDecoration(
-                              labelText: 'Unit',
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Remove row',
-                          onPressed: rows.length == 1
-                              ? null
-                              : () => refresh(() => rows.removeAt(i)),
-                          icon: const Icon(Icons.remove_circle_outline),
-                        ),
-                      ],
-                    ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () =>
-                          refresh(() => rows.add(_BulkShoppingRow())),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add another row'),
-                    ),
+                      ),
+                    ],
                   ),
-                  if (error.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        error,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final parsed = rows
-                    .map((row) => _parseMilli(row.quantity.text))
-                    .toList();
-                if (rows.any(
-                      (row) =>
-                          row.name.text.trim().isEmpty ||
-                          row.unit.text.trim().isEmpty,
-                    ) ||
-                    parsed.any((q) => q == null || q <= 0)) {
-                  refresh(
-                    () => error = 'Fix every row: enter a name, positive quantity and unit.',
-                  );
-                  return;
-                }
-                Navigator.pop(dialogContext, [
-                  for (var i = 0; i < rows.length; i++)
-                    ShoppingItemInput(
-                      name: rows[i].name.text,
-                      quantityMilli: parsed[i]!,
-                      unit: rows[i].unit.text,
-                    ),
-                ]);
-              },
-              child: const Text('Save all'),
-            ),
-          ],
-        ),
-      ),
-    );
-    for (final row in rows) {
-      row.dispose();
-    }
-    if (result == null || !mounted) return;
-    try {
-      await ref
-          .read(groceryRepositoryProvider)
-          .addShoppingItemsBulk(listId, result);
-    } catch (error) {
-      _message('Nothing was saved. $error');
-    }
-  }
-
-  Future<void> _adjustInventory(HomeInventoryItem item) async {
-    final quantity = TextEditingController(
-      text: _quantityText(item.quantityMilli),
-    );
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Change ${item.name} quantity'),
-        content: TextField(
-          controller: quantity,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(labelText: 'Remaining ${item.unit}'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Save quantity'),
-          ),
-        ],
-      ),
-    );
-    if (result == true && mounted) {
-      final value = _parseMilli(quantity.text);
-      if (value == null || value < 0) {
-        _message('Enter a non-negative quantity.');
-      } else {
-        await ref
-            .read(groceryRepositoryProvider)
-            .adjustInventoryQuantity(item.id, value);
-      }
-    }
-    quantity.dispose();
-  }
-
-  Future<void> _moveInventory(HomeInventoryItem item) async {
-    final location = TextEditingController(text: item.location);
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Move ${item.name}'),
-        content: TextField(
-          controller: location,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Storage location',
-            hintText: 'Fridge, freezer, pantry...',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Move item'),
-          ),
-        ],
-      ),
-    );
-    if (result == true && mounted) {
-      await ref
-          .read(groceryRepositoryProvider)
-          .moveInventoryItem(item.id, location.text);
-    }
-    location.dispose();
-  }
-
-  Future<void> _addInventoryToShopping(
-    HomeInventoryItem item,
-    List<GroceryList> lists,
-  ) async {
-    if (lists.isEmpty) {
-      _message('Create a basket first.');
-      return;
-    }
-    var selectedListId = lists.first.id;
-    final listId = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Add ${item.name} to Basket'),
-        content: StatefulBuilder(
-          builder: (ctx, refresh) => DropdownButtonFormField<String>(
-            initialValue: selectedListId,
-            decoration: const InputDecoration(labelText: 'Choose list'),
-            items: lists
-                .map(
-                  (list) =>
-                      DropdownMenuItem(value: list.id, child: Text(list.name)),
-                )
-                .toList(),
-            onChanged: (value) =>
-                refresh(() => selectedListId = value ?? selectedListId),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, selectedListId),
-            child: const Text('Add item'),
-          ),
-        ],
-      ),
-    );
-    if (listId != null) {
-      await ref
-          .read(groceryRepositoryProvider)
-          .addInventoryItemToShopping(inventoryItemId: item.id, listId: listId);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final listsAsync = ref.watch(
-      _showArchived ? groceryArchivedListsProvider : groceryListsProvider,
-    );
-    return PageContainer(
-      child: listsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) =>
-            Center(child: Text('Could not load baskets: $error')),
-        data: (lists) {
-          final current =
-              lists.where((list) => list.id == _selectedListId).firstOrNull ??
-              (lists.isEmpty ? null : lists.first);
-          if (current != null && current.id != _selectedListId) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _selectedListId = current.id);
-            });
-          }
-          return ListView(
-            children: [
-              _sectionSelector(),
-              if (_showInventory) ...[
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      'My Inventory',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _addMultipleInventoryItems,
-                      icon: const Icon(Icons.playlist_add),
-                      label: const Text('Add multiple'),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      onPressed: () => _editInventoryItem(),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add item'),
-                    ),
-                  ],
                 ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Track the food and essentials you currently have at home.',
-                ),
-                const SizedBox(height: 16),
-                _inventoryBody(lists),
-              ] else ...[
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(
-                      'Baskets',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    FilledButton.icon(
-                      onPressed: _showArchived
-                          ? null
-                          : current == null
-                          ? () => _editList()
-                          : () => _editItem(current.id),
-                      icon: Icon(
-                        current == null ? Icons.playlist_add : Icons.add,
-                      ),
-                      label: Text(
-                        current == null ? 'Create a list' : 'Add item',
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: current == null || _showArchived
-                          ? null
-                          : () => _addMultipleShoppingItems(current.id),
-                      icon: const Icon(Icons.playlist_add),
-                      label: const Text('Add multiple'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Plan your shop, track what you bought, and record the bill when you are ready.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 16),
-                _listControls(lists, current),
-                if (current == null) ...[
-                  const SizedBox(height: 32),
-                  EmptyState(
-                    icon: Icons.shopping_basket_outlined,
-                    title: _showArchived
-                        ? 'No archived lists'
-                        : 'No baskets yet',
-                    message: _showArchived
-                        ? 'Archived lists will appear here.'
-                        : 'Create a basket to start adding items.',
-                    action: !_showArchived
-                        ? FilledButton.icon(
-                            onPressed: _editList,
-                            icon: const Icon(Icons.add),
-                            label: const Text('Create a list'),
-                          )
-                        : null,
-                  ),
-                ] else ...[
-                  const SizedBox(height: 14),
-                  _listBody(current),
-                ],
               ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Stock Status & Bar
+                  Row(
+                    children: [
+                      Text(
+                        targetQty > 0
+                            ? '${formatMilliQty(currentItem.quantityMilli, currentItem.unit)} / ${formatMilliQty(currentItem.targetQuantityMilli, currentItem.unit)}'
+                            : formatMilliQty(
+                                currentItem.quantityMilli,
+                                currentItem.unit,
+                              ),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: status.color.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          status.label,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: status.color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (targetQty > 0) ...[
+                    const SizedBox(height: 8),
+                    StockProgressBar(
+                      currentQty: currentQty,
+                      targetQty: targetQty,
+                      lowStockThreshold: lowThreshold,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${pct.toStringAsFixed(0)}% remaining',
+                      style: TextStyle(fontSize: 11, color: status.color),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+
+                  // Quantity Adjustments Control
+                  const Text(
+                    'Quick Adjust Quantity',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.remove),
+                        onPressed: () async {
+                          final newQty = (currentQty - stepVal).clamp(
+                            0.0,
+                            9999.0,
+                          );
+                          await ref
+                              .read(groceryRepositoryProvider)
+                              .adjustInventoryQuantity(
+                                currentItem.id,
+                                (newQty * 1000).round(),
+                              );
+                        },
+                      ),
+                      const SizedBox(width: 16),
+                      Text(
+                        formatMilliQty(
+                          currentItem.quantityMilli,
+                          currentItem.unit,
+                        ),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.add),
+                        onPressed: () async {
+                          final newQty = currentQty + stepVal;
+                          await ref
+                              .read(groceryRepositoryProvider)
+                              .adjustInventoryQuantity(
+                                currentItem.id,
+                                (newQty * 1000).round(),
+                              );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Quick Increment Chips
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 6,
+                    children: [
+                      ActionChip(
+                        label: Text('-$stepVal'),
+                        onPressed: () async {
+                          final newQty = (currentQty - stepVal).clamp(
+                            0.0,
+                            9999.0,
+                          );
+                          await ref
+                              .read(groceryRepositoryProvider)
+                              .adjustInventoryQuantity(
+                                currentItem.id,
+                                (newQty * 1000).round(),
+                              );
+                        },
+                      ),
+                      ActionChip(
+                        label: Text('+$stepVal'),
+                        onPressed: () async {
+                          final newQty = currentQty + stepVal;
+                          await ref
+                              .read(groceryRepositoryProvider)
+                              .adjustInventoryQuantity(
+                                currentItem.id,
+                                (newQty * 1000).round(),
+                              );
+                        },
+                      ),
+                      if (!isDiscreteUnit) ...[
+                        ActionChip(
+                          label: const Text('+1.0'),
+                          onPressed: () async {
+                            final newQty = currentQty + 1.0;
+                            await ref
+                                .read(groceryRepositoryProvider)
+                                .adjustInventoryQuantity(
+                                  currentItem.id,
+                                  (newQty * 1000).round(),
+                                );
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (currentItem.expiryAt != null) ...[
+                    Text(
+                      'Expiry: ${DateFormat.yMMMd().format(currentItem.expiryAt!)}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
+                  if (currentItem.notes.isNotEmpty) ...[
+                    Text(
+                      'Notes: ${currentItem.notes}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
+                  // 1-Tap Add to Shopping List
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(36),
+                    ),
+                    icon: const Icon(Icons.add_shopping_cart, size: 16),
+                    label: const Text('Add to Shopping List'),
+                    onPressed: () async {
+                      final lists = await ref.read(groceryListsProvider.future);
+                      if (lists.isNotEmpty) {
+                        await ref
+                            .read(groceryRepositoryProvider)
+                            .addInventoryItemToShopping(
+                              inventoryItemId: currentItem.id,
+                              listId: lists.first.id,
+                            );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Added "${currentItem.name}" to shopping list.',
+                              ),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                onPressed: () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (dCtx) => AlertDialog(
+                      title: const Text('Delete item?'),
+                      content: Text(
+                        'Remove "${currentItem.name}" from inventory?',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dCtx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.error,
+                          ),
+                          onPressed: () => Navigator.pop(dCtx, true),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await ref
+                        .read(groceryRepositoryProvider)
+                        .deleteInventoryItem(currentItem.id);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  }
+                },
+                child: const Text('Delete'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _showAddOrEditItemForm(context, editItem: currentItem);
+                },
+                child: const Text('Edit'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Done'),
+              ),
             ],
           );
         },
@@ -1115,1460 +1770,589 @@ class _GroceriesScreenState extends ConsumerState<GroceriesScreen> {
     );
   }
 
-  Widget _sectionSelector() => Padding(
-    padding: const EdgeInsets.only(bottom: 16),
-    child: SegmentedButton<bool>(
-      segments: const [
-        ButtonSegment(
-          value: true,
-          icon: Icon(Icons.kitchen_outlined),
-          label: Text('My Inventory'),
-        ),
-        ButtonSegment(
-          value: false,
-          icon: Icon(Icons.shopping_cart_outlined),
-          label: Text('Baskets'),
-        ),
-      ],
-      selected: {_showInventory},
-      onSelectionChanged: (value) => setState(() {
-        _showInventory = value.single;
-        _query = '';
-      }),
-    ),
-  );
+  // ---------------------------------------------------------------------------
+  // CATEGORY MANAGEMENT SHEET & DIALOGS
+  // ---------------------------------------------------------------------------
+  void _showCategoryManagementSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => Consumer(
+        builder: (context, ref, _) {
+          final categories =
+              ref.watch(inventoryCategoriesProvider).asData?.value ?? [];
+          final items = ref.watch(homeInventoryProvider).asData?.value ?? [];
 
-  Widget _listControls(List<GroceryList> lists, GroceryList? current) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          SizedBox(
-            width: 280,
-            child: DropdownButtonFormField<String>(
-              initialValue: current?.id,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Basket',
-                border: OutlineInputBorder(),
-              ),
-              items: lists
-                  .map(
-                    (list) => DropdownMenuItem(
-                      value: list.id,
-                      child: Text(list.name, overflow: TextOverflow.ellipsis),
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Manage Categories',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  )
-                  .toList(),
-              onChanged: (id) => setState(() {
-                _selectedListId = id;
-                _query = '';
-                _category = 'All';
-                _purchaseSelection.clear();
-              }),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline),
+                      tooltip: 'Add category',
+                      onPressed: () => _showCategoryEditDialog(context),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: categories.length,
+                    itemBuilder: (context, i) {
+                      final cat = categories[i];
+                      final catItems = items
+                          .where(
+                            (item) =>
+                                item.categoryId == cat.id ||
+                                item.category.toLowerCase() ==
+                                    cat.name.toLowerCase(),
+                          )
+                          .toList();
+
+                      return Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Color(cat.colorValue),
+                            child: Icon(
+                              inventoryIconForCodePoint(cat.iconCodePoint),
+                              color: const Color(0xFF111111),
+                              size: 20,
+                            ),
+                          ),
+                          title: Text(cat.name),
+                          subtitle: Text('${catItems.length} items'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined, size: 20),
+                                onPressed: () => _showCategoryEditDialog(
+                                  context,
+                                  category: cat,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                  color: AppColors.error,
+                                ),
+                                onPressed: () => _confirmCategoryDeletion(
+                                  context,
+                                  cat,
+                                  catItems,
+                                  categories,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showCategoryEditDialog(
+    BuildContext context, {
+    InventoryCategory? category,
+  }) {
+    final nameController = TextEditingController(text: category?.name ?? '');
+
+    final colors = [
+      0xFFAEEBDD, // Light green
+      0xFFFFC5D8, // Light pink
+      0xFFBFE0FF, // Light blue
+      0xFFE5C9FF, // Light purple
+      0xFFFFD49A, // Light yellow
+      0xFFFFD0AE, // Light orange
+      0xFFB5E8D4, // Teal
+      0xFFC9D4FF, // Soft indigo
+    ];
+
+    final icons = [
+      0xe59c, // shopping_bag_outlined
+      0xf017a, // soap_outlined
+      0xe17d, // cleaning_services_outlined
+      0xe3d9, // medication_outlined
+      0xf06d8, // edit_note_outlined
+      0xe25a, // local_dining_outlined
+      0xe3af, // kitchen_outlined
+      0xe16a, // category_outlined
+    ];
+
+    int selectedColor = category?.colorValue ?? colors.first;
+    int selectedIcon = category?.iconCodePoint ?? icons.first;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) => AlertDialog(
+          title: Text(category == null ? 'Add Category' : 'Edit Category'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Category Name',
+                    hintText: 'e.g. Snacks, Drinks',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Icon',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final icon in icons)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => setDlgState(() => selectedIcon = icon),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: selectedIcon == icon
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : null,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: selectedIcon == icon
+                                  ? AppColors.brand
+                                  : Colors.transparent,
+                            ),
+                          ),
+                          child: Icon(
+                            inventoryIconForCodePoint(icon),
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Color',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final color in colors)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () => setDlgState(() => selectedColor = color),
+                        child: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: Color(color),
+                          child: selectedColor == color
+                              ? const Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: Color(0xFF111111),
+                                )
+                              : null,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ),
           ),
-          Wrap(
-            spacing: 4,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+
+                await ref
+                    .read(groceryRepositoryProvider)
+                    .saveCategory(
+                      id: category?.id,
+                      name: name,
+                      iconCodePoint: selectedIcon,
+                      colorValue: selectedColor,
+                    );
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmCategoryDeletion(
+    BuildContext context,
+    InventoryCategory category,
+    List<HomeInventoryItem> catItems,
+    List<InventoryCategory> allCategories,
+  ) {
+    if (catItems.isEmpty) {
+      // Safe to delete directly
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Delete "${category.name}"?'),
+          content: const Text('This category has no items assigned.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+              onPressed: () async {
+                await ref
+                    .read(groceryRepositoryProvider)
+                    .deleteCategory(category.id);
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Has items: prompt for reassignment
+    final otherCategories = allCategories
+        .where((c) => c.id != category.id)
+        .toList();
+    InventoryCategory? reassignCat = otherCategories.firstOrNull;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) => AlertDialog(
+          title: Text('Delete "${category.name}"?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!_showArchived)
-                IconButton(
-                  tooltip: 'New list',
-                  onPressed: _editList,
-                  icon: const Icon(Icons.playlist_add),
-                ),
-              if (current != null)
-                PopupMenuButton<String>(
-                  tooltip: 'List options',
-                  onSelected: (action) => _listAction(action, current),
-                  itemBuilder: (_) => _showArchived
-                      ? const [
-                          PopupMenuItem(
-                            value: 'restore',
-                            child: Text('Restore list'),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Delete permanently'),
-                          ),
-                        ]
-                      : const [
-                          PopupMenuItem(
-                            value: 'rename',
-                            child: Text('Edit list'),
-                          ),
-                          PopupMenuItem(
-                            value: 'archive',
-                            child: Text('Archive list'),
-                          ),
-                          PopupMenuItem(
-                            value: 'clear',
-                            child: Text('Clear purchased items'),
-                          ),
-                          PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Delete permanently'),
-                          ),
-                        ],
-                ),
-              TextButton.icon(
-                onPressed: () => setState(() {
-                  _showArchived = !_showArchived;
-                  _selectedListId = null;
-                }),
-                icon: Icon(
-                  _showArchived ? Icons.list_alt : Icons.archive_outlined,
-                ),
-                label: Text(_showArchived ? 'Active lists' : 'Archived'),
+              Text(
+                'This category contains ${catItems.length} items. Reassign items to another category before deleting.',
               ),
+              const SizedBox(height: 12),
+              if (otherCategories.isNotEmpty) ...[
+                DropdownButtonFormField<InventoryCategory>(
+                  value: reassignCat,
+                  decoration: const InputDecoration(
+                    labelText: 'Reassign to Category',
+                  ),
+                  items: otherCategories
+                      .map(
+                        (c) => DropdownMenuItem(value: c, child: Text(c.name)),
+                      )
+                      .toList(),
+                  onChanged: (val) => setDlgState(() => reassignCat = val),
+                ),
+              ],
             ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+              onPressed: () async {
+                await ref
+                    .read(groceryRepositoryProvider)
+                    .deleteCategory(
+                      category.id,
+                      reassignToCategoryId: reassignCat?.id,
+                    );
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Reassign & Delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SORT BOTTOM SHEET
+  // ---------------------------------------------------------------------------
+  void _showSortBottomSheet(BuildContext context) {
+    final sortOptions = [
+      'Name: A → Z',
+      'Name: Z → A',
+      'Quantity: Low → High',
+      'Quantity: High → Low',
+      'Stock level: Low → High',
+      'Stock level: High → Low',
+      'Recently added',
+      'Expiry date: Earliest first',
+      'Expiry date: Latest first',
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Sort Items By',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: ListView(
+                children: [
+                  for (final opt in sortOptions)
+                    ListTile(
+                      title: Text(opt),
+                      trailing: _selectedSortOrder == opt
+                          ? const Icon(Icons.check, color: AppColors.brand)
+                          : null,
+                      onTap: () {
+                        setState(() => _selectedSortOrder = opt);
+                        Navigator.pop(ctx);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // FAB ACTION SHEET
+  // ---------------------------------------------------------------------------
+  void _showFabActionSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_box_outlined),
+              title: const Text('Add Inventory Item'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showAddOrEditItemForm(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.add_shopping_cart_outlined),
+              title: const Text('Add Shopping List Item'),
+              onTap: () {
+                Navigator.pop(ctx);
+                final lists =
+                    ref.read(groceryListsProvider).asData?.value ?? [];
+                if (lists.isNotEmpty) {
+                  _showAddShoppingItemDialog(context, lists.first.id);
+                } else {
+                  _showAddListDialog(context);
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.category_outlined),
+              title: const Text('Manage Categories'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showCategoryManagementSheet(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SHOPPING LIST HELPER DIALOGS
+  // ---------------------------------------------------------------------------
+  void _showAddListDialog(BuildContext context) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Shopping List'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(hintText: 'e.g. Weekly Groceries'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) {
+                await ref.read(groceryRepositoryProvider).saveList(name: name);
+                if (ctx.mounted) Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Create'),
           ),
         ],
       ),
-    ),
-  );
-
-  Widget _listBody(GroceryList list) {
-    final itemsAsync = ref.watch(groceryItemsProvider(list.id));
-    return itemsAsync.when(
-      loading: () => const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: CircularProgressIndicator(),
-        ),
-      ),
-      error: (error, _) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text('Could not load items: $error'),
-        ),
-      ),
-      data: (items) {
-        final purchased = items.where((item) => item.isPurchased).toList();
-        final remaining = items.where((item) => !item.isPurchased).toList();
-        final estimated = _total(items, (item) => item.estimatedUnitPriceMinor);
-        final actual = _total(purchased, (item) => item.actualUnitPriceMinor);
-        final estimateLeft = _total(
-          remaining,
-          (item) => item.estimatedUnitPriceMinor,
-        );
-        final categories = items.map((item) => item.category).toSet().toList()
-          ..sort();
-        final q = _query.trim().toLowerCase();
-        // Keep search, status, and category filters composable.
-        final filtered =
-            items.where((item) {
-              final statusMatch =
-                  _status == 'All' ||
-                  (_status == 'Purchased') == item.isPurchased;
-              final categoryMatch =
-                  _category == 'All' || item.category == _category;
-              final textMatch =
-                  q.isEmpty ||
-                  '${item.name} ${item.notes}'.toLowerCase().contains(q);
-              return statusMatch && categoryMatch && textMatch;
-            }).toList()..sort(
-              (a, b) => switch (_sort) {
-                'Name' => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-                'Category' => a.category.toLowerCase().compareTo(
-                  b.category.toLowerCase(),
-                ),
-                'Purchase status' => a.isPurchased.toString().compareTo(
-                  b.isPurchased.toString(),
-                ),
-                _ => b.createdAt.compareTo(a.createdAt),
-              },
-            );
-        final progress = items.isEmpty ? 0.0 : purchased.length / items.length;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (list.description.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(list.description),
-              ),
-            if (list.targetAt != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  'Target date: ${DateFormat.yMMMd().format(list.targetAt!.toLocal())}',
-                ),
-              ),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${purchased.length} of ${items.length} purchased',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        Text('${(progress * 100).round()}%'),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(value: progress),
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 18,
-                      runSpacing: 8,
-                      children: [
-                        _totalText('Estimated list', estimated),
-                        _totalText('Purchased actual', actual),
-                        _totalText('Estimated remaining', estimateLeft),
-                      ],
-                    ),
-                    if (items.any(
-                      (item) =>
-                          item.isPurchased && item.actualUnitPriceMinor == null,
-                    ))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          'Some purchased items do not have an actual price yet.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            if (purchased.isNotEmpty) ...[
-              Text(
-                'Choose the purchased items on this bill:',
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final item in purchased)
-                    FilterChip(
-                      label: Text(item.name),
-                      selected: _purchaseSelection.contains(item.id),
-                      onSelected: _showArchived
-                          ? null
-                          : (selected) => setState(() {
-                              selected
-                                  ? _purchaseSelection.add(item.id)
-                                  : _purchaseSelection.remove(item.id);
-                            }),
-                    ),
-                ],
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.tonalIcon(
-                  onPressed: _showArchived
-                      ? null
-                      : () => _recordPurchase(
-                          list,
-                          _purchaseSelection.isEmpty
-                              ? purchased
-                              : purchased
-                                    .where(
-                                      (item) =>
-                                          _purchaseSelection.contains(item.id),
-                                    )
-                                    .toList(),
-                        ),
-                  icon: const Icon(Icons.account_balance_wallet_outlined),
-                  label: Text(
-                    'Record ${_purchaseSelection.isEmpty ? 'all purchased items' : 'selected items'} in Money Manager',
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search item names and notes',
-              ),
-              onChanged: (value) => setState(() => _query = value),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                for (final value in const ['All', 'Remaining', 'Purchased'])
-                  ChoiceChip(
-                    label: Text(value),
-                    selected: _status == value,
-                    onSelected: (_) => setState(() => _status = value),
-                  ),
-                DropdownButton<String>(
-                  value: categories.contains(_category) || _category == 'All'
-                      ? _category
-                      : 'All',
-                  underline: const SizedBox.shrink(),
-                  items: ['All', ...categories]
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(
-                            value == 'All' ? 'All categories' : value,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) =>
-                      setState(() => _category = value ?? 'All'),
-                ),
-                DropdownButton<String>(
-                  value: _sort,
-                  underline: const SizedBox.shrink(),
-                  items:
-                      const [
-                            'Recently added',
-                            'Name',
-                            'Category',
-                            'Purchase status',
-                          ]
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text('Sort: $value'),
-                            ),
-                          )
-                          .toList(),
-                  onChanged: (value) => setState(() => _sort = value ?? _sort),
-                ),
-                if (_query.isNotEmpty || _status != 'All' || _category != 'All')
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _query = '';
-                      _status = 'All';
-                      _category = 'All';
-                    }),
-                    child: const Text('Clear filters'),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (items.isEmpty)
-              EmptyState(
-                icon: Icons.shopping_cart_outlined,
-                title: 'This list is empty',
-                message: 'Add grocery items to plan your shop.',
-                action: !_showArchived
-                    ? FilledButton.icon(
-                        onPressed: () => _editItem(list.id),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add item'),
-                      )
-                    : null,
-              )
-            else if (filtered.isEmpty)
-              const EmptyState(
-                icon: Icons.search_off,
-                title: 'No matching items',
-                message: 'Try another search or clear the filters.',
-                compact: true,
-              )
-            else ...[
-              if (remaining.any(filtered.contains))
-                _sectionLabel(
-                  'To buy',
-                  remaining.where(filtered.contains).length,
-                ),
-              for (final item in filtered.where((item) => !item.isPurchased))
-                _itemCard(list, item),
-              if (purchased.any(filtered.contains))
-                _sectionLabel(
-                  'Purchased',
-                  purchased.where(filtered.contains).length,
-                ),
-              for (final item in filtered.where((item) => item.isPurchased))
-                _itemCard(list, item),
-            ],
-          ],
-        );
-      },
     );
   }
 
-  int? _total(List<GroceryItem> items, int? Function(GroceryItem) price) {
-    if (items.any((item) => price(item) == null)) return null;
-    return items.fold<int>(
-      0,
-      (sum, item) => sum + (price(item)! * item.quantityMilli ~/ 1000),
-    );
-  }
+  void _showAddShoppingItemDialog(BuildContext context, String listId) {
+    final nameController = TextEditingController();
+    final qtyController = TextEditingController(text: '1');
+    String unit = 'Piece';
 
-  Widget _totalText(String label, int? amount) => SizedBox(
-    width: 175,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
-        Text(
-          amount == null ? 'Price unknown' : formatMinorUnits(amount),
-          style: Theme.of(context).textTheme.titleSmall,
-        ),
-      ],
-    ),
-  );
-
-  Widget _sectionLabel(String title, int count) => Padding(
-    padding: const EdgeInsets.fromLTRB(2, 14, 2, 6),
-    child: Text(
-      '$title ($count)',
-      style: Theme.of(context).textTheme.titleMedium,
-    ),
-  );
-
-  Widget _itemCard(GroceryList list, GroceryItem item) {
-    final estimatedLine = item.estimatedUnitPriceMinor == null
-        ? null
-        : formatMinorUnits(
-            item.estimatedUnitPriceMinor! * item.quantityMilli ~/ 1000,
-          );
-    final actualLine = item.actualUnitPriceMinor == null
-        ? 'Actual total unknown'
-        : 'Actual ${formatMinorUnits(item.actualUnitPriceMinor! * item.quantityMilli ~/ 1000)}';
-    final purchasedDate = item.purchasedAt == null
-        ? ''
-        : ' · ${DateFormat.yMMMd().format(item.purchasedAt!.toLocal())}';
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Checkbox(
-          value: item.isPurchased,
-          onChanged: _showArchived
-              ? null
-              : (value) => _togglePurchased(item, value ?? false),
-        ),
-        title: Text(
-          item.name,
-          style: TextStyle(
-            decoration: item.isPurchased ? TextDecoration.lineThrough : null,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${_quantityText(item.quantityMilli)} ${item.unit} · ${item.category}',
-            ),
-            Text(
-              estimatedLine == null
-                  ? 'Estimated total: unknown'
-                  : 'Estimated $estimatedLine',
-            ),
-            if (item.isPurchased) Text('$actualLine$purchasedDate'),
-            if (item.notes.isNotEmpty) Text(item.notes),
-            FutureBuilder<bool>(
-              future: ref
-                  .read(groceryRepositoryProvider)
-                  .hasRecordedPurchase(item.id),
-              builder: (context, snapshot) => snapshot.data == true
-                  ? Text(
-                      'Linked Money Manager transaction saved',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ],
-        ),
-        isThreeLine: item.notes.isNotEmpty,
-        trailing: PopupMenuButton<String>(
-          tooltip: 'Item actions',
-          onSelected: (action) async {
-            if (action == 'edit') await _editItem(list.id, item: item);
-            if (action == 'delete') await _deleteItem(item);
-            if (action == 'inventory') await _receivePurchasedItem(item);
-          },
-          itemBuilder: (_) => [
-            const PopupMenuItem(value: 'edit', child: Text('Edit')),
-            if (item.isPurchased && item.inventoryAppliedAt == null)
-              const PopupMenuItem(
-                value: 'inventory',
-                child: Text('Add purchased quantity to My Inventory'),
-              ),
-            const PopupMenuItem(value: 'delete', child: Text('Remove item')),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _receivePurchasedItem(GroceryItem item) async {
-    final locations = _storageLocations();
-    var location = locations.contains('Pantry') ? 'Pantry' : locations.first;
-    var mergeExisting = true;
-    final selected = await showDialog<String>(
+    showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, refresh) => AlertDialog(
-          title: Text('Add ${item.name} to My Inventory'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) => AlertDialog(
+          title: const Text('Add Shopping Item'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              DropdownButtonFormField<String>(
-                initialValue: location,
-                decoration: const InputDecoration(
-                  labelText: 'Storage location',
-                ),
-                items: locations
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    refresh(() => location = value ?? location),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Item Name'),
               ),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: mergeExisting,
-                title: const Text('Increase a matching item in this location'),
-                onChanged: (value) =>
-                    refresh(() => mergeExisting = value ?? false),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, location),
-              child: const Text('Add to inventory'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (selected == null || !mounted) return;
-    try {
-      final added = await ref
-          .read(groceryRepositoryProvider)
-          .receivePurchasedItem(
-            itemId: item.id,
-            location: selected,
-            addToInventory: true,
-            mergeExisting: mergeExisting,
-          );
-      _message(
-        added
-            ? 'Inventory updated.'
-            : 'This purchase was already added to inventory.',
-      );
-    } catch (error) {
-      _message(error.toString());
-    }
-  }
-
-  String _quantityText(int milli) => (milli / 1000).toStringAsFixed(
-    milli % 1000 == 0
-        ? 0
-        : milli % 100 == 0
-        ? 1
-        : milli % 10 == 0
-        ? 2
-        : 3,
-  );
-
-  Future<void> _togglePurchased(GroceryItem item, bool purchased) async {
-    int? actual;
-    var addToInventory = false;
-    var storageLocation = 'Pantry';
-    var mergeInventory = true;
-    if (purchased) {
-      final price = TextEditingController(
-        text: item.actualUnitPriceMinor == null
-            ? ''
-            : _minorText(item.actualUnitPriceMinor!),
-      );
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, refresh) => AlertDialog(
-            title: Text('Mark ${item.name} purchased?'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: price,
-                  autofocus: true,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Actual unit price (optional)',
-                    prefixText: '₹',
-                  ),
-                ),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: addToInventory,
-                  title: const Text('Add purchased quantity to My Inventory'),
-                  onChanged: (value) =>
-                      refresh(() => addToInventory = value ?? false),
-                ),
-                if (addToInventory)
-                  DropdownButtonFormField<String>(
-                    initialValue: storageLocation,
-                    decoration: const InputDecoration(
-                      labelText: 'Storage location',
-                    ),
-                    items: _storageLocations()
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) => refresh(
-                      () => storageLocation = value ?? storageLocation,
-                    ),
-                  ),
-                if (addToInventory)
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: mergeInventory,
-                    title: const Text(
-                      'Increase a matching item in this location',
-                    ),
-                    onChanged: (value) =>
-                        refresh(() => mergeInventory = value ?? false),
-                  ),
-                const Text(
-                  'Inventory updates do not create a Money Manager expense.',
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Purchased'),
-              ),
-            ],
-          ),
-        ),
-      );
-      if (confirmed != true) {
-        price.dispose();
-        return;
-      }
-      final input = price.text.trim();
-      if (input.isNotEmpty) {
-        actual = parseMinorUnits(input);
-        if (actual == null) {
-          price.dispose();
-          _message('Enter a non-negative price with up to two decimal places.');
-          return;
-        }
-      }
-      price.dispose();
-    } else if (await ref
-            .read(groceryRepositoryProvider)
-            .hasRecordedPurchase(item.id) &&
-        mounted) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Unmark purchased item?'),
-          content: const Text(
-            'The linked Money Manager expense will remain recorded. You can manage that transaction in Money Manager.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Unmark'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true) return;
-    }
-    _purchaseSelection.remove(item.id);
-    await ref
-        .read(groceryRepositoryProvider)
-        .setPurchased(
-          item.id,
-          purchased: purchased,
-          actualUnitPriceMinor: actual,
-        );
-    if (purchased && addToInventory && mounted) {
-      try {
-        final applied = await ref
-            .read(groceryRepositoryProvider)
-            .receivePurchasedItem(
-              itemId: item.id,
-              location: storageLocation,
-              addToInventory: true,
-              mergeExisting: mergeInventory,
-            );
-        if (!applied) _message('This purchase was already added to inventory.');
-      } catch (error) {
-        _message('Purchase saved, but inventory was not updated: $error');
-      }
-    }
-  }
-
-  Future<void> _editItem(String listId, {GroceryItem? item}) async {
-    final name = TextEditingController(text: item?.name ?? '');
-    final quantity = TextEditingController(
-      text: _quantityText(item?.quantityMilli ?? 1000),
-    );
-    final estimate = TextEditingController(
-      text: item?.estimatedUnitPriceMinor == null
-          ? ''
-          : _minorText(item!.estimatedUnitPriceMinor!),
-    );
-    final actual = TextEditingController(
-      text: item?.actualUnitPriceMinor == null
-          ? ''
-          : _minorText(item!.actualUnitPriceMinor!),
-    );
-    final notes = TextEditingController(text: item?.notes ?? '');
-    const standardUnits = [
-      'Piece',
-      'Kilogram',
-      'Gram',
-      'Litre',
-      'Millilitre',
-      'Pack',
-      'Bottle',
-      'Dozen',
-      'Other',
-    ];
-    const standardCategories = [
-      'Fruits',
-      'Vegetables',
-      'Dairy',
-      'Bakery',
-      'Meat and seafood',
-      'Snacks',
-      'Beverages',
-      'Household essentials',
-      'Personal care',
-      'Other',
-    ];
-    String unit = standardUnits.contains(item?.unit)
-        ? item?.unit ?? 'Piece'
-        : 'Other';
-    String category = standardCategories.contains(item?.category)
-        ? item?.category ?? 'Other'
-        : 'Other';
-    final customUnit = TextEditingController(
-      text: unit == 'Other' && item?.unit != 'Other' ? item?.unit ?? '' : '',
-    );
-    final customCategory = TextEditingController(
-      text: category == 'Other' && item?.category != 'Other'
-          ? item?.category ?? ''
-          : '',
-    );
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, refresh) => AlertDialog(
-          title: Text(item == null ? 'Add grocery item' : 'Edit grocery item'),
-          content: SizedBox(
-            width: 440,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+              const SizedBox(height: 8),
+              Row(
                 children: [
-                  TextField(
-                    controller: name,
-                    autofocus: true,
-                    maxLength: 160,
-                    decoration: const InputDecoration(labelText: 'Item name *'),
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: quantity,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: const InputDecoration(
-                            labelText: 'Quantity *',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue:
-                              const [
-                                'Piece',
-                                'Kilogram',
-                                'Gram',
-                                'Litre',
-                                'Millilitre',
-                                'Pack',
-                                'Bottle',
-                                'Dozen',
-                                'Other',
-                              ].contains(unit)
-                              ? unit
-                              : 'Other',
-                          decoration: const InputDecoration(labelText: 'Unit'),
-                          items:
-                              const [
-                                    'Piece',
-                                    'Kilogram',
-                                    'Gram',
-                                    'Litre',
-                                    'Millilitre',
-                                    'Pack',
-                                    'Bottle',
-                                    'Dozen',
-                                    'Other',
-                                  ]
-                                  .map(
-                                    (v) => DropdownMenuItem(
-                                      value: v,
-                                      child: Text(v),
-                                    ),
-                                  )
-                                  .toList(),
-                          onChanged: (v) => refresh(() => unit = v ?? unit),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (unit == 'Other')
-                    TextField(
-                      decoration: InputDecoration(
-                        labelText: 'Custom unit',
-                        hintText: item?.unit,
-                      ),
-                      controller: customUnit,
-                    ),
-                  TextField(
-                    controller: estimate,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Estimated unit price (optional)',
-                      prefixText: '₹',
+                  Expanded(
+                    child: TextField(
+                      controller: qtyController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Quantity'),
                     ),
                   ),
-                  if (item?.isPurchased == true)
-                    TextField(
-                      controller: actual,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Actual unit price (optional)',
-                        prefixText: '₹',
-                      ),
-                    ),
-                  DropdownButtonFormField<String>(
-                    initialValue:
-                        const [
-                          'Fruits',
-                          'Vegetables',
-                          'Dairy',
-                          'Bakery',
-                          'Meat and seafood',
-                          'Snacks',
-                          'Beverages',
-                          'Household essentials',
-                          'Personal care',
-                          'Other',
-                        ].contains(category)
-                        ? category
-                        : 'Other',
-                    decoration: const InputDecoration(labelText: 'Category'),
-                    items:
-                        const [
-                              'Fruits',
-                              'Vegetables',
-                              'Dairy',
-                              'Bakery',
-                              'Meat and seafood',
-                              'Snacks',
-                              'Beverages',
-                              'Household essentials',
-                              'Personal care',
-                              'Other',
-                            ]
-                            .map(
-                              (v) => DropdownMenuItem(value: v, child: Text(v)),
-                            )
-                            .toList(),
-                    onChanged: (v) => refresh(() => category = v ?? category),
-                  ),
-                  if (category == 'Other')
-                    TextField(
-                      decoration: InputDecoration(
-                        labelText: 'Custom category',
-                        hintText: item?.category == 'Other'
-                            ? null
-                            : item?.category,
-                      ),
-                      controller: customCategory,
-                    ),
-                  TextField(
-                    controller: notes,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes (optional)',
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: unit,
+                      items: _units
+                          .map(
+                            (u) => DropdownMenuItem(value: u, child: Text(u)),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setDlgState(() => unit = v);
+                      },
                     ),
                   ),
                 ],
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save item'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (result == true && mounted) {
-      final q = _parseMilli(quantity.text);
-      final estimateMinor = estimate.text.trim().isEmpty
-          ? null
-          : parseMinorUnits(estimate.text);
-      final actualMinor = actual.text.trim().isEmpty
-          ? null
-          : parseMinorUnits(actual.text);
-      if (name.text.trim().isEmpty ||
-          q == null ||
-          q <= 0 ||
-          (estimate.text.trim().isNotEmpty && estimateMinor == null) ||
-          (actual.text.trim().isNotEmpty && actualMinor == null)) {
-        _message(
-          'Check the item name, positive quantity, and prices. Prices allow up to two decimals.',
-        );
-      } else {
-        try {
-          await ref
-              .read(groceryRepositoryProvider)
-              .saveItem(
-                id: item?.id,
-                listId: listId,
-                name: name.text,
-                quantityMilli: q,
-                unit: unit == 'Other' && customUnit.text.trim().isNotEmpty
-                    ? customUnit.text.trim()
-                    : unit,
-                category:
-                    category == 'Other' && customCategory.text.trim().isNotEmpty
-                    ? customCategory.text.trim()
-                    : category,
-                estimatedUnitPriceMinor: estimateMinor,
-                actualUnitPriceMinor: actualMinor,
-                notes: notes.text,
-              );
-        } catch (error) {
-          _message(error.toString());
-        }
-      }
-    }
-    for (final controller in [name, quantity, estimate, actual, notes]) {
-      controller.dispose();
-    }
-    customUnit.dispose();
-    customCategory.dispose();
-  }
-
-  Future<void> _editList({GroceryList? list}) async {
-    final name = TextEditingController(text: list?.name ?? '');
-    final description = TextEditingController(text: list?.description ?? '');
-    DateTime? target = list?.targetAt;
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, refresh) => AlertDialog(
-          title: Text(list == null ? 'New basket' : 'Edit basket'),
-          content: SizedBox(
-            width: 400,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: name,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: 'List name *'),
-                ),
-                TextField(
-                  controller: description,
-                  decoration: const InputDecoration(
-                    labelText: 'Description (optional)',
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () async {
-                      final value = await showDatePicker(
-                        context: ctx,
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                        initialDate: target ?? DateTime.now(),
-                      );
-                      if (value != null) refresh(() => target = value);
-                    },
-                    icon: const Icon(Icons.event_outlined),
-                    label: Text(
-                      target == null
-                          ? 'Set target shopping date'
-                          : DateFormat.yMMMd().format(target!),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save list'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (result == true && mounted) {
-      try {
-        await ref
-            .read(groceryRepositoryProvider)
-            .saveList(
-              id: list?.id,
-              name: name.text,
-              description: description.text,
-              targetAt: target,
-            );
-        if (list == null) ref.invalidate(groceryListsProvider);
-      } catch (error) {
-        _message(error.toString());
-      }
-    }
-    name.dispose();
-    description.dispose();
-  }
-
-  Future<void> _listAction(String action, GroceryList list) async {
-    final repository = ref.read(groceryRepositoryProvider);
-    switch (action) {
-      case 'rename':
-        await _editList(list: list);
-        break;
-      case 'archive':
-        await repository.setArchived(list.id, archived: true);
-        setState(() => _selectedListId = null);
-        break;
-      case 'restore':
-        await repository.setArchived(list.id, archived: false);
-        setState(() => _selectedListId = null);
-        break;
-      case 'clear':
-        if (await _confirm(
-              'Clear purchased items?',
-              'Purchased items will be removed from this list. Money Manager transactions and recorded purchase history will remain.',
-            ) ==
-            true) {
-          await repository.clearPurchased(list.id);
-        }
-        break;
-      case 'delete':
-        if (await _confirm(
-              'Delete ${list.name}?',
-              'This permanently deletes the list and its items. Existing Money Manager transactions remain in your financial history.',
-            ) ==
-            true) {
-          await repository.deleteList(list.id);
-          setState(() => _selectedListId = null);
-        }
-    }
-  }
-
-  Future<bool?> _confirm(String title, String message) => showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title),
-      content: Text(message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Confirm'),
-        ),
-      ],
-    ),
-  );
-
-  Future<void> _deleteItem(GroceryItem item) async {
-    if (await _confirm(
-          'Remove ${item.name}?',
-          'The grocery item and its list link will be removed. Any Money Manager transaction already recorded will remain.',
-        ) ==
-        true) {
-      await ref.read(groceryRepositoryProvider).deleteItem(item.id);
-    }
-  }
-
-  Future<void> _recordPurchase(
-    GroceryList list,
-    List<GroceryItem> items,
-  ) async {
-    final cleanup = <TextEditingController>[];
-    var addPurchasedToInventory = false;
-    var inventoryLocation = 'Pantry';
-    var mergePurchasedWithExisting = true;
-    try {
-      final mode = await ref
-          .read(groceryRepositoryProvider)
-          .purchaseModeForItems(items.map((item) => item.id).toList());
-      if (mode == 'mixed') {
-        _message(
-          'Select all items from one recorded bill, or choose only unrecorded items.',
-        );
-        return;
-      }
-      final accounts = await ref.read(moneyActiveAccountsProvider.future);
-      final categories = (await ref.read(
-        moneyExpensesCategoriesProvider.future,
-      )).where((category) => category.archivedAt == null).toList();
-      if (!mounted) return;
-      if (accounts.isEmpty || categories.isEmpty) {
-        _message(
-          'Add an active Money Manager account and expense category first.',
-        );
-        return;
-      }
-      final defaultTotal = _total(items, (item) => item.actualUnitPriceMinor);
-      final amount = TextEditingController(
-        text: defaultTotal == null ? '' : _minorText(defaultTotal),
-      );
-      cleanup.add(amount);
-      final note = TextEditingController(text: 'Groceries - ${list.name}');
-      cleanup.add(note);
-      final actualPriceControllers = <String, TextEditingController>{
-        for (final item in items)
-          item.id: TextEditingController(
-            text: item.actualUnitPriceMinor == null
-                ? ''
-                : _minorText(item.actualUnitPriceMinor!),
-          ),
-      };
-      cleanup.addAll(actualPriceControllers.values);
-      String accountId = accounts.first.id;
-      String categoryId =
-          categories
-              .where((c) => c.name.toLowerCase() == 'groceries')
-              .firstOrNull
-              ?.id ??
-          categories.first.id;
-      DateTime occurredAt = DateTime.now();
-      final result = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, refresh) => AlertDialog(
-            title: const Text('Record grocery purchase'),
-            content: SizedBox(
-              width: 440,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'This bill covers ${items.length} purchased ${items.length == 1 ? 'item' : 'items'}.',
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Estimated selected total: ${_total(items, (item) => item.estimatedUnitPriceMinor) == null ? 'unknown' : formatMinorUnits(_total(items, (item) => item.estimatedUnitPriceMinor)!)}',
-                    ),
-                    for (final item in items) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text(
-                          '${item.name} · ${_quantityText(item.quantityMilli)} ${item.unit}',
-                        ),
-                      ),
-                      TextField(
-                        controller: actualPriceControllers[item.id],
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: InputDecoration(
-                          labelText:
-                              'Actual unit price for ${item.name} (optional)',
-                          prefixText: '₹',
-                        ),
-                        onChanged: (_) => refresh(() {}),
-                      ),
-                    ],
-                    TextField(
-                      controller: amount,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Actual bill total *',
-                        prefixText: '₹',
-                      ),
-                    ),
-                    DropdownButtonFormField<String>(
-                      initialValue: accountId,
-                      decoration: const InputDecoration(
-                        labelText: 'Payment account',
-                      ),
-                      items: accounts
-                          .map(
-                            (account) => DropdownMenuItem(
-                              value: account.id,
-                              child: Text(account.name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) =>
-                          refresh(() => accountId = value ?? accountId),
-                    ),
-                    DropdownButtonFormField<String>(
-                      initialValue: categoryId,
-                      decoration: const InputDecoration(
-                        labelText: 'Expense category',
-                      ),
-                      items: categories
-                          .map(
-                            (category) => DropdownMenuItem(
-                              value: category.id,
-                              child: Text(category.name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) =>
-                          refresh(() => categoryId = value ?? categoryId),
-                    ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: () async {
-                          final value = await showDatePicker(
-                            context: ctx,
-                            firstDate: DateTime(2000),
-                            lastDate: DateTime(2100),
-                            initialDate: occurredAt,
-                          );
-                          if (value != null) refresh(() => occurredAt = value);
-                        },
-                        icon: const Icon(Icons.event_outlined),
-                        label: Text(DateFormat.yMMMd().format(occurredAt)),
-                      ),
-                    ),
-                    TextField(
-                      controller: note,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes (optional)',
-                      ),
-                    ),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: addPurchasedToInventory,
-                      title: const Text('Add purchased items to My Inventory'),
-                      onChanged: (value) => refresh(
-                        () => addPurchasedToInventory = value ?? false,
-                      ),
-                    ),
-                    if (addPurchasedToInventory)
-                      DropdownButtonFormField<String>(
-                        initialValue: inventoryLocation,
-                        decoration: const InputDecoration(
-                          labelText: 'Storage location for these items',
-                        ),
-                        items: _storageLocations()
-                            .map(
-                              (value) => DropdownMenuItem(
-                                value: value,
-                                child: Text(value),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) => refresh(
-                          () => inventoryLocation = value ?? inventoryLocation,
-                        ),
-                      ),
-                    if (addPurchasedToInventory)
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: mergePurchasedWithExisting,
-                        title: const Text(
-                          'Increase matching items in this location',
-                        ),
-                        onChanged: (value) => refresh(
-                          () => mergePurchasedWithExisting = value ?? false,
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                    Text(
-                      mode == 'update'
-                          ? 'This will update the existing linked Money Manager expense.'
-                          : 'This will create one new Money Manager expense for these items.',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Save expense'),
-              ),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                final qty =
+                    ((double.tryParse(qtyController.text) ?? 1.0) * 1000)
+                        .round();
+                if (name.isNotEmpty) {
+                  await ref
+                      .read(groceryRepositoryProvider)
+                      .saveItem(
+                        listId: listId,
+                        name: name,
+                        quantityMilli: qty,
+                        unit: unit,
+                        category: 'Groceries',
+                      );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
         ),
-      );
-      if (result == true && mounted) {
-        final amountMinor = parseMinorUnits(amount.text);
-        if (amountMinor == null || amountMinor <= 0) {
-          _message('Enter a bill total greater than zero.');
-        } else {
-          final unitPrices = <String, int?>{};
-          var invalidPrice = false;
-          for (final entry in actualPriceControllers.entries) {
-            final input = entry.value.text.trim();
-            final parsed = input.isEmpty ? null : parseMinorUnits(input);
-            if (input.isNotEmpty && parsed == null) invalidPrice = true;
-            unitPrices[entry.key] = parsed;
-          }
-          if (invalidPrice) {
-            _message(
-              'Item prices must be non-negative with up to two decimal places.',
-            );
-            return;
-          }
-          await ref
-              .read(groceryRepositoryProvider)
-              .recordPurchase(
-                listId: list.id,
-                itemIds: items.map((item) => item.id).toList(),
-                amountMinor: amountMinor,
-                accountId: accountId,
-                categoryId: categoryId,
-                occurredAt: occurredAt,
-                note: note.text,
-                actualUnitPricesMinor: unitPrices,
-                addPurchasedToInventory: addPurchasedToInventory,
-                inventoryLocation: inventoryLocation,
-                mergePurchasedWithExisting: mergePurchasedWithExisting,
-              );
-          _message('Grocery expense saved in Money Manager.');
-        }
-      }
-    } catch (error) {
-      if (mounted) _message(error.toString());
-    } finally {
-      for (final controller in cleanup) {
-        controller.dispose();
-      }
-    }
+      ),
+    );
   }
 
-  int? _parseMilli(String value) {
-    final match = RegExp(r'^(\d+)(?:\.(\d{1,3}))?$').firstMatch(value.trim());
-    if (match == null) return null;
-    final whole = int.tryParse(match.group(1)!);
-    return whole == null
-        ? null
-        : whole * 1000 + int.parse((match.group(2) ?? '').padRight(3, '0'));
-  }
-
-  String _minorText(int value) =>
-      '${value ~/ 100}.${(value % 100).toString().padLeft(2, '0')}';
-
-  List<String> _storageLocations() => {
-    'Fridge',
-    'Freezer',
-    'Pantry',
-    'Other',
-    ...(ref.read(homeInventoryProvider).value ?? const <HomeInventoryItem>[])
-        .map((item) => item.location),
-  }.toList()..sort();
-
-  void _message(String message) =>
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-}
-
-class _BulkInventoryRow {
-  _BulkInventoryRow()
-    : name = TextEditingController(),
-      quantity = TextEditingController(text: '1'),
-      unit = TextEditingController(text: 'Piece'),
-      location = TextEditingController(text: 'Pantry');
-
-  final TextEditingController name;
-  final TextEditingController quantity;
-  final TextEditingController unit;
-  final TextEditingController location;
-  DateTime? expiryAt;
-
-  void dispose() {
-    name.dispose();
-    quantity.dispose();
-    unit.dispose();
-    location.dispose();
-  }
-}
-
-class _BulkShoppingRow {
-  _BulkShoppingRow()
-    : name = TextEditingController(),
-      quantity = TextEditingController(text: '1'),
-      unit = TextEditingController(text: 'Piece');
-
-  final TextEditingController name;
-  final TextEditingController quantity;
-  final TextEditingController unit;
-
-  void dispose() {
-    name.dispose();
-    quantity.dispose();
-    unit.dispose();
+  void _promptUpdateInventoryFromPurchase(
+    BuildContext context,
+    GroceryItem item,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Update Inventory?'),
+        content: Text(
+          'Would you like to add ${formatMilliQty(item.quantityMilli, item.unit)} of "${item.name}" to your inventory stock?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await ref
+                  .read(groceryRepositoryProvider)
+                  .receivePurchasedItem(
+                    itemId: item.id,
+                    location: 'Pantry',
+                    addToInventory: true,
+                  );
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('Yes, Add to Inventory'),
+          ),
+        ],
+      ),
+    );
   }
 }

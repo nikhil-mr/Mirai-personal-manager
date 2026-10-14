@@ -33,9 +33,9 @@ class MainShell extends ConsumerWidget {
       selectedIcon: Icons.explore_rounded,
     ),
     _Destination(
-      label: 'Grocery',
-      icon: Icons.shopping_basket_outlined,
-      selectedIcon: Icons.shopping_basket_rounded,
+      label: 'Inventory',
+      icon: Icons.inventory_2_outlined,
+      selectedIcon: Icons.inventory_2_rounded,
     ),
   ];
 

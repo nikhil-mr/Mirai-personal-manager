@@ -306,6 +306,19 @@ class GroceryPurchaseItems extends Table {
   ];
 }
 
+class InventoryCategories extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text().withLength(min: 1, max: 80)();
+  IntColumn get iconCodePoint => integer()();
+  IntColumn get colorValue => integer()();
+  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 /// Supplies currently on hand, distinct from GroceryItems planned for shopping.
 class HomeInventoryItems extends Table {
   TextColumn get id => text()();
@@ -318,6 +331,14 @@ class HomeInventoryItems extends Table {
   DateTimeColumn get purchasedAt => dateTime().nullable()();
   IntColumn get unitCostMinor => integer().nullable()();
   TextColumn get notes => text().withDefault(const Constant(''))();
+  IntColumn get targetQuantityMilli =>
+      integer().withDefault(const Constant(0))();
+  IntColumn get lowStockThresholdMilli =>
+      integer().withDefault(const Constant(0))();
+  IntColumn get iconCodePoint => integer().nullable()();
+  IntColumn get colorValue => integer().nullable()();
+  TextColumn get categoryId =>
+      text().nullable().references(InventoryCategories, #id)();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
@@ -345,6 +366,7 @@ class HomeInventoryItems extends Table {
     GroceryPurchases,
     GroceryPurchaseItems,
     HomeInventoryItems,
+    InventoryCategories,
   ],
 )
 class MoneyDatabase extends _$MoneyDatabase {
@@ -361,7 +383,7 @@ class MoneyDatabase extends _$MoneyDatabase {
   );
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -403,6 +425,31 @@ class MoneyDatabase extends _$MoneyDatabase {
       if (from < 9) {
         try {
           await m.addColumn(moneyAccounts, moneyAccounts.isPrimary);
+        } catch (_) {}
+      }
+      if (from < 10) {
+        await m.createTable(inventoryCategories);
+        try {
+          await m.addColumn(
+            homeInventoryItems,
+            homeInventoryItems.targetQuantityMilli,
+          );
+          await m.addColumn(
+            homeInventoryItems,
+            homeInventoryItems.lowStockThresholdMilli,
+          );
+          await m.addColumn(
+            homeInventoryItems,
+            homeInventoryItems.iconCodePoint,
+          );
+          await m.addColumn(
+            homeInventoryItems,
+            homeInventoryItems.colorValue,
+          );
+          await m.addColumn(
+            homeInventoryItems,
+            homeInventoryItems.categoryId,
+          );
         } catch (_) {}
       }
     },

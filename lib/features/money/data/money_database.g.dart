@@ -9619,6 +9619,481 @@ class GroceryPurchaseItemsCompanion
   }
 }
 
+class $InventoryCategoriesTable extends InventoryCategories
+    with TableInfo<$InventoryCategoriesTable, InventoryCategory> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $InventoryCategoriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    additionalChecks: GeneratedColumn.checkTextLength(
+      minTextLength: 1,
+      maxTextLength: 80,
+    ),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _iconCodePointMeta = const VerificationMeta(
+    'iconCodePoint',
+  );
+  @override
+  late final GeneratedColumn<int> iconCodePoint = GeneratedColumn<int>(
+    'icon_code_point',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _colorValueMeta = const VerificationMeta(
+    'colorValue',
+  );
+  @override
+  late final GeneratedColumn<int> colorValue = GeneratedColumn<int>(
+    'color_value',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
+    'isDefault',
+  );
+  @override
+  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
+    'is_default',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_default" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    iconCodePoint,
+    colorValue,
+    isDefault,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'inventory_categories';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<InventoryCategory> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('icon_code_point')) {
+      context.handle(
+        _iconCodePointMeta,
+        iconCodePoint.isAcceptableOrUnknown(
+          data['icon_code_point']!,
+          _iconCodePointMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_iconCodePointMeta);
+    }
+    if (data.containsKey('color_value')) {
+      context.handle(
+        _colorValueMeta,
+        colorValue.isAcceptableOrUnknown(data['color_value']!, _colorValueMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_colorValueMeta);
+    }
+    if (data.containsKey('is_default')) {
+      context.handle(
+        _isDefaultMeta,
+        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  InventoryCategory map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return InventoryCategory(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      iconCodePoint: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}icon_code_point'],
+      )!,
+      colorValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}color_value'],
+      )!,
+      isDefault: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_default'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $InventoryCategoriesTable createAlias(String alias) {
+    return $InventoryCategoriesTable(attachedDatabase, alias);
+  }
+}
+
+class InventoryCategory extends DataClass
+    implements Insertable<InventoryCategory> {
+  final String id;
+  final String name;
+  final int iconCodePoint;
+  final int colorValue;
+  final bool isDefault;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const InventoryCategory({
+    required this.id,
+    required this.name,
+    required this.iconCodePoint,
+    required this.colorValue,
+    required this.isDefault,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['icon_code_point'] = Variable<int>(iconCodePoint);
+    map['color_value'] = Variable<int>(colorValue);
+    map['is_default'] = Variable<bool>(isDefault);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  InventoryCategoriesCompanion toCompanion(bool nullToAbsent) {
+    return InventoryCategoriesCompanion(
+      id: Value(id),
+      name: Value(name),
+      iconCodePoint: Value(iconCodePoint),
+      colorValue: Value(colorValue),
+      isDefault: Value(isDefault),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory InventoryCategory.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return InventoryCategory(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      iconCodePoint: serializer.fromJson<int>(json['iconCodePoint']),
+      colorValue: serializer.fromJson<int>(json['colorValue']),
+      isDefault: serializer.fromJson<bool>(json['isDefault']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'iconCodePoint': serializer.toJson<int>(iconCodePoint),
+      'colorValue': serializer.toJson<int>(colorValue),
+      'isDefault': serializer.toJson<bool>(isDefault),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  InventoryCategory copyWith({
+    String? id,
+    String? name,
+    int? iconCodePoint,
+    int? colorValue,
+    bool? isDefault,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => InventoryCategory(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    iconCodePoint: iconCodePoint ?? this.iconCodePoint,
+    colorValue: colorValue ?? this.colorValue,
+    isDefault: isDefault ?? this.isDefault,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  InventoryCategory copyWithCompanion(InventoryCategoriesCompanion data) {
+    return InventoryCategory(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      iconCodePoint: data.iconCodePoint.present
+          ? data.iconCodePoint.value
+          : this.iconCodePoint,
+      colorValue: data.colorValue.present
+          ? data.colorValue.value
+          : this.colorValue,
+      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('InventoryCategory(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('iconCodePoint: $iconCodePoint, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    iconCodePoint,
+    colorValue,
+    isDefault,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is InventoryCategory &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.iconCodePoint == this.iconCodePoint &&
+          other.colorValue == this.colorValue &&
+          other.isDefault == this.isDefault &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class InventoryCategoriesCompanion extends UpdateCompanion<InventoryCategory> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<int> iconCodePoint;
+  final Value<int> colorValue;
+  final Value<bool> isDefault;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const InventoryCategoriesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.iconCodePoint = const Value.absent(),
+    this.colorValue = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  InventoryCategoriesCompanion.insert({
+    required String id,
+    required String name,
+    required int iconCodePoint,
+    required int colorValue,
+    this.isDefault = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       iconCodePoint = Value(iconCodePoint),
+       colorValue = Value(colorValue),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<InventoryCategory> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<int>? iconCodePoint,
+    Expression<int>? colorValue,
+    Expression<bool>? isDefault,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (iconCodePoint != null) 'icon_code_point': iconCodePoint,
+      if (colorValue != null) 'color_value': colorValue,
+      if (isDefault != null) 'is_default': isDefault,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  InventoryCategoriesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<int>? iconCodePoint,
+    Value<int>? colorValue,
+    Value<bool>? isDefault,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return InventoryCategoriesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      iconCodePoint: iconCodePoint ?? this.iconCodePoint,
+      colorValue: colorValue ?? this.colorValue,
+      isDefault: isDefault ?? this.isDefault,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (iconCodePoint.present) {
+      map['icon_code_point'] = Variable<int>(iconCodePoint.value);
+    }
+    if (colorValue.present) {
+      map['color_value'] = Variable<int>(colorValue.value);
+    }
+    if (isDefault.present) {
+      map['is_default'] = Variable<bool>(isDefault.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('InventoryCategoriesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('iconCodePoint: $iconCodePoint, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $HomeInventoryItemsTable extends HomeInventoryItems
     with TableInfo<$HomeInventoryItemsTable, HomeInventoryItem> {
   @override
@@ -9735,6 +10210,64 @@ class $HomeInventoryItemsTable extends HomeInventoryItems
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _targetQuantityMilliMeta =
+      const VerificationMeta('targetQuantityMilli');
+  @override
+  late final GeneratedColumn<int> targetQuantityMilli = GeneratedColumn<int>(
+    'target_quantity_milli',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lowStockThresholdMilliMeta =
+      const VerificationMeta('lowStockThresholdMilli');
+  @override
+  late final GeneratedColumn<int> lowStockThresholdMilli = GeneratedColumn<int>(
+    'low_stock_threshold_milli',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _iconCodePointMeta = const VerificationMeta(
+    'iconCodePoint',
+  );
+  @override
+  late final GeneratedColumn<int> iconCodePoint = GeneratedColumn<int>(
+    'icon_code_point',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _colorValueMeta = const VerificationMeta(
+    'colorValue',
+  );
+  @override
+  late final GeneratedColumn<int> colorValue = GeneratedColumn<int>(
+    'color_value',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES inventory_categories (id)',
+    ),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -9769,6 +10302,11 @@ class $HomeInventoryItemsTable extends HomeInventoryItems
     purchasedAt,
     unitCostMinor,
     notes,
+    targetQuantityMilli,
+    lowStockThresholdMilli,
+    iconCodePoint,
+    colorValue,
+    categoryId,
     createdAt,
     updatedAt,
   ];
@@ -9856,6 +10394,45 @@ class $HomeInventoryItemsTable extends HomeInventoryItems
         notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
       );
     }
+    if (data.containsKey('target_quantity_milli')) {
+      context.handle(
+        _targetQuantityMilliMeta,
+        targetQuantityMilli.isAcceptableOrUnknown(
+          data['target_quantity_milli']!,
+          _targetQuantityMilliMeta,
+        ),
+      );
+    }
+    if (data.containsKey('low_stock_threshold_milli')) {
+      context.handle(
+        _lowStockThresholdMilliMeta,
+        lowStockThresholdMilli.isAcceptableOrUnknown(
+          data['low_stock_threshold_milli']!,
+          _lowStockThresholdMilliMeta,
+        ),
+      );
+    }
+    if (data.containsKey('icon_code_point')) {
+      context.handle(
+        _iconCodePointMeta,
+        iconCodePoint.isAcceptableOrUnknown(
+          data['icon_code_point']!,
+          _iconCodePointMeta,
+        ),
+      );
+    }
+    if (data.containsKey('color_value')) {
+      context.handle(
+        _colorValueMeta,
+        colorValue.isAcceptableOrUnknown(data['color_value']!, _colorValueMeta),
+      );
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -9921,6 +10498,26 @@ class $HomeInventoryItemsTable extends HomeInventoryItems
         DriftSqlType.string,
         data['${effectivePrefix}notes'],
       )!,
+      targetQuantityMilli: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_quantity_milli'],
+      )!,
+      lowStockThresholdMilli: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}low_stock_threshold_milli'],
+      )!,
+      iconCodePoint: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}icon_code_point'],
+      ),
+      colorValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}color_value'],
+      ),
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      ),
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -9950,6 +10547,11 @@ class HomeInventoryItem extends DataClass
   final DateTime? purchasedAt;
   final int? unitCostMinor;
   final String notes;
+  final int targetQuantityMilli;
+  final int lowStockThresholdMilli;
+  final int? iconCodePoint;
+  final int? colorValue;
+  final String? categoryId;
   final DateTime createdAt;
   final DateTime updatedAt;
   const HomeInventoryItem({
@@ -9963,6 +10565,11 @@ class HomeInventoryItem extends DataClass
     this.purchasedAt,
     this.unitCostMinor,
     required this.notes,
+    required this.targetQuantityMilli,
+    required this.lowStockThresholdMilli,
+    this.iconCodePoint,
+    this.colorValue,
+    this.categoryId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -9985,6 +10592,17 @@ class HomeInventoryItem extends DataClass
       map['unit_cost_minor'] = Variable<int>(unitCostMinor);
     }
     map['notes'] = Variable<String>(notes);
+    map['target_quantity_milli'] = Variable<int>(targetQuantityMilli);
+    map['low_stock_threshold_milli'] = Variable<int>(lowStockThresholdMilli);
+    if (!nullToAbsent || iconCodePoint != null) {
+      map['icon_code_point'] = Variable<int>(iconCodePoint);
+    }
+    if (!nullToAbsent || colorValue != null) {
+      map['color_value'] = Variable<int>(colorValue);
+    }
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -10008,6 +10626,17 @@ class HomeInventoryItem extends DataClass
           ? const Value.absent()
           : Value(unitCostMinor),
       notes: Value(notes),
+      targetQuantityMilli: Value(targetQuantityMilli),
+      lowStockThresholdMilli: Value(lowStockThresholdMilli),
+      iconCodePoint: iconCodePoint == null && nullToAbsent
+          ? const Value.absent()
+          : Value(iconCodePoint),
+      colorValue: colorValue == null && nullToAbsent
+          ? const Value.absent()
+          : Value(colorValue),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -10029,6 +10658,15 @@ class HomeInventoryItem extends DataClass
       purchasedAt: serializer.fromJson<DateTime?>(json['purchasedAt']),
       unitCostMinor: serializer.fromJson<int?>(json['unitCostMinor']),
       notes: serializer.fromJson<String>(json['notes']),
+      targetQuantityMilli: serializer.fromJson<int>(
+        json['targetQuantityMilli'],
+      ),
+      lowStockThresholdMilli: serializer.fromJson<int>(
+        json['lowStockThresholdMilli'],
+      ),
+      iconCodePoint: serializer.fromJson<int?>(json['iconCodePoint']),
+      colorValue: serializer.fromJson<int?>(json['colorValue']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
@@ -10047,6 +10685,11 @@ class HomeInventoryItem extends DataClass
       'purchasedAt': serializer.toJson<DateTime?>(purchasedAt),
       'unitCostMinor': serializer.toJson<int?>(unitCostMinor),
       'notes': serializer.toJson<String>(notes),
+      'targetQuantityMilli': serializer.toJson<int>(targetQuantityMilli),
+      'lowStockThresholdMilli': serializer.toJson<int>(lowStockThresholdMilli),
+      'iconCodePoint': serializer.toJson<int?>(iconCodePoint),
+      'colorValue': serializer.toJson<int?>(colorValue),
+      'categoryId': serializer.toJson<String?>(categoryId),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -10063,6 +10706,11 @@ class HomeInventoryItem extends DataClass
     Value<DateTime?> purchasedAt = const Value.absent(),
     Value<int?> unitCostMinor = const Value.absent(),
     String? notes,
+    int? targetQuantityMilli,
+    int? lowStockThresholdMilli,
+    Value<int?> iconCodePoint = const Value.absent(),
+    Value<int?> colorValue = const Value.absent(),
+    Value<String?> categoryId = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
   }) => HomeInventoryItem(
@@ -10078,6 +10726,14 @@ class HomeInventoryItem extends DataClass
         ? unitCostMinor.value
         : this.unitCostMinor,
     notes: notes ?? this.notes,
+    targetQuantityMilli: targetQuantityMilli ?? this.targetQuantityMilli,
+    lowStockThresholdMilli:
+        lowStockThresholdMilli ?? this.lowStockThresholdMilli,
+    iconCodePoint: iconCodePoint.present
+        ? iconCodePoint.value
+        : this.iconCodePoint,
+    colorValue: colorValue.present ? colorValue.value : this.colorValue,
+    categoryId: categoryId.present ? categoryId.value : this.categoryId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -10099,6 +10755,21 @@ class HomeInventoryItem extends DataClass
           ? data.unitCostMinor.value
           : this.unitCostMinor,
       notes: data.notes.present ? data.notes.value : this.notes,
+      targetQuantityMilli: data.targetQuantityMilli.present
+          ? data.targetQuantityMilli.value
+          : this.targetQuantityMilli,
+      lowStockThresholdMilli: data.lowStockThresholdMilli.present
+          ? data.lowStockThresholdMilli.value
+          : this.lowStockThresholdMilli,
+      iconCodePoint: data.iconCodePoint.present
+          ? data.iconCodePoint.value
+          : this.iconCodePoint,
+      colorValue: data.colorValue.present
+          ? data.colorValue.value
+          : this.colorValue,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -10117,6 +10788,11 @@ class HomeInventoryItem extends DataClass
           ..write('purchasedAt: $purchasedAt, ')
           ..write('unitCostMinor: $unitCostMinor, ')
           ..write('notes: $notes, ')
+          ..write('targetQuantityMilli: $targetQuantityMilli, ')
+          ..write('lowStockThresholdMilli: $lowStockThresholdMilli, ')
+          ..write('iconCodePoint: $iconCodePoint, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('categoryId: $categoryId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -10135,6 +10811,11 @@ class HomeInventoryItem extends DataClass
     purchasedAt,
     unitCostMinor,
     notes,
+    targetQuantityMilli,
+    lowStockThresholdMilli,
+    iconCodePoint,
+    colorValue,
+    categoryId,
     createdAt,
     updatedAt,
   );
@@ -10152,6 +10833,11 @@ class HomeInventoryItem extends DataClass
           other.purchasedAt == this.purchasedAt &&
           other.unitCostMinor == this.unitCostMinor &&
           other.notes == this.notes &&
+          other.targetQuantityMilli == this.targetQuantityMilli &&
+          other.lowStockThresholdMilli == this.lowStockThresholdMilli &&
+          other.iconCodePoint == this.iconCodePoint &&
+          other.colorValue == this.colorValue &&
+          other.categoryId == this.categoryId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -10167,6 +10853,11 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
   final Value<DateTime?> purchasedAt;
   final Value<int?> unitCostMinor;
   final Value<String> notes;
+  final Value<int> targetQuantityMilli;
+  final Value<int> lowStockThresholdMilli;
+  final Value<int?> iconCodePoint;
+  final Value<int?> colorValue;
+  final Value<String?> categoryId;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
@@ -10181,6 +10872,11 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
     this.purchasedAt = const Value.absent(),
     this.unitCostMinor = const Value.absent(),
     this.notes = const Value.absent(),
+    this.targetQuantityMilli = const Value.absent(),
+    this.lowStockThresholdMilli = const Value.absent(),
+    this.iconCodePoint = const Value.absent(),
+    this.colorValue = const Value.absent(),
+    this.categoryId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -10196,6 +10892,11 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
     this.purchasedAt = const Value.absent(),
     this.unitCostMinor = const Value.absent(),
     this.notes = const Value.absent(),
+    this.targetQuantityMilli = const Value.absent(),
+    this.lowStockThresholdMilli = const Value.absent(),
+    this.iconCodePoint = const Value.absent(),
+    this.colorValue = const Value.absent(),
+    this.categoryId = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.rowid = const Value.absent(),
@@ -10215,6 +10916,11 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
     Expression<DateTime>? purchasedAt,
     Expression<int>? unitCostMinor,
     Expression<String>? notes,
+    Expression<int>? targetQuantityMilli,
+    Expression<int>? lowStockThresholdMilli,
+    Expression<int>? iconCodePoint,
+    Expression<int>? colorValue,
+    Expression<String>? categoryId,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
@@ -10230,6 +10936,13 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
       if (purchasedAt != null) 'purchased_at': purchasedAt,
       if (unitCostMinor != null) 'unit_cost_minor': unitCostMinor,
       if (notes != null) 'notes': notes,
+      if (targetQuantityMilli != null)
+        'target_quantity_milli': targetQuantityMilli,
+      if (lowStockThresholdMilli != null)
+        'low_stock_threshold_milli': lowStockThresholdMilli,
+      if (iconCodePoint != null) 'icon_code_point': iconCodePoint,
+      if (colorValue != null) 'color_value': colorValue,
+      if (categoryId != null) 'category_id': categoryId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -10247,6 +10960,11 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
     Value<DateTime?>? purchasedAt,
     Value<int?>? unitCostMinor,
     Value<String>? notes,
+    Value<int>? targetQuantityMilli,
+    Value<int>? lowStockThresholdMilli,
+    Value<int?>? iconCodePoint,
+    Value<int?>? colorValue,
+    Value<String?>? categoryId,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
@@ -10262,6 +10980,12 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
       purchasedAt: purchasedAt ?? this.purchasedAt,
       unitCostMinor: unitCostMinor ?? this.unitCostMinor,
       notes: notes ?? this.notes,
+      targetQuantityMilli: targetQuantityMilli ?? this.targetQuantityMilli,
+      lowStockThresholdMilli:
+          lowStockThresholdMilli ?? this.lowStockThresholdMilli,
+      iconCodePoint: iconCodePoint ?? this.iconCodePoint,
+      colorValue: colorValue ?? this.colorValue,
+      categoryId: categoryId ?? this.categoryId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -10301,6 +11025,23 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
     if (notes.present) {
       map['notes'] = Variable<String>(notes.value);
     }
+    if (targetQuantityMilli.present) {
+      map['target_quantity_milli'] = Variable<int>(targetQuantityMilli.value);
+    }
+    if (lowStockThresholdMilli.present) {
+      map['low_stock_threshold_milli'] = Variable<int>(
+        lowStockThresholdMilli.value,
+      );
+    }
+    if (iconCodePoint.present) {
+      map['icon_code_point'] = Variable<int>(iconCodePoint.value);
+    }
+    if (colorValue.present) {
+      map['color_value'] = Variable<int>(colorValue.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -10326,6 +11067,11 @@ class HomeInventoryItemsCompanion extends UpdateCompanion<HomeInventoryItem> {
           ..write('purchasedAt: $purchasedAt, ')
           ..write('unitCostMinor: $unitCostMinor, ')
           ..write('notes: $notes, ')
+          ..write('targetQuantityMilli: $targetQuantityMilli, ')
+          ..write('lowStockThresholdMilli: $lowStockThresholdMilli, ')
+          ..write('iconCodePoint: $iconCodePoint, ')
+          ..write('colorValue: $colorValue, ')
+          ..write('categoryId: $categoryId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -10364,6 +11110,8 @@ abstract class _$MoneyDatabase extends GeneratedDatabase {
   );
   late final $GroceryPurchaseItemsTable groceryPurchaseItems =
       $GroceryPurchaseItemsTable(this);
+  late final $InventoryCategoriesTable inventoryCategories =
+      $InventoryCategoriesTable(this);
   late final $HomeInventoryItemsTable homeInventoryItems =
       $HomeInventoryItemsTable(this);
   @override
@@ -10388,6 +11136,7 @@ abstract class _$MoneyDatabase extends GeneratedDatabase {
     groceryItems,
     groceryPurchases,
     groceryPurchaseItems,
+    inventoryCategories,
     homeInventoryItems,
   ];
   @override
@@ -18842,6 +19591,375 @@ typedef $$GroceryPurchaseItemsTableProcessedTableManager =
       GroceryPurchaseItem,
       PrefetchHooks Function({bool purchaseId, bool itemId})
     >;
+typedef $$InventoryCategoriesTableCreateCompanionBuilder =
+    InventoryCategoriesCompanion Function({
+      required String id,
+      required String name,
+      required int iconCodePoint,
+      required int colorValue,
+      Value<bool> isDefault,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$InventoryCategoriesTableUpdateCompanionBuilder =
+    InventoryCategoriesCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<int> iconCodePoint,
+      Value<int> colorValue,
+      Value<bool> isDefault,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+final class $$InventoryCategoriesTableReferences
+    extends
+        BaseReferences<
+          _$MoneyDatabase,
+          $InventoryCategoriesTable,
+          InventoryCategory
+        > {
+  $$InventoryCategoriesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static MultiTypedResultKey<$HomeInventoryItemsTable, List<HomeInventoryItem>>
+  _homeInventoryItemsRefsTable(_$MoneyDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.homeInventoryItems,
+        aliasName:
+            'inventory_categories__id__home_inventory_items__category_id',
+      );
+
+  $$HomeInventoryItemsTableProcessedTableManager get homeInventoryItemsRefs {
+    final manager = $$HomeInventoryItemsTableTableManager(
+      $_db,
+      $_db.homeInventoryItems,
+    ).filter((f) => f.categoryId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(
+      _homeInventoryItemsRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$InventoryCategoriesTableFilterComposer
+    extends Composer<_$MoneyDatabase, $InventoryCategoriesTable> {
+  $$InventoryCategoriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get iconCodePoint => $composableBuilder(
+    column: $table.iconCodePoint,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> homeInventoryItemsRefs(
+    Expression<bool> Function($$HomeInventoryItemsTableFilterComposer f) f,
+  ) {
+    final $$HomeInventoryItemsTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.homeInventoryItems,
+      getReferencedColumn: (t) => t.categoryId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$HomeInventoryItemsTableFilterComposer(
+            $db: $db,
+            $table: $db.homeInventoryItems,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$InventoryCategoriesTableOrderingComposer
+    extends Composer<_$MoneyDatabase, $InventoryCategoriesTable> {
+  $$InventoryCategoriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get iconCodePoint => $composableBuilder(
+    column: $table.iconCodePoint,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$InventoryCategoriesTableAnnotationComposer
+    extends Composer<_$MoneyDatabase, $InventoryCategoriesTable> {
+  $$InventoryCategoriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get iconCodePoint => $composableBuilder(
+    column: $table.iconCodePoint,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get isDefault =>
+      $composableBuilder(column: $table.isDefault, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  Expression<T> homeInventoryItemsRefs<T extends Object>(
+    Expression<T> Function($$HomeInventoryItemsTableAnnotationComposer a) f,
+  ) {
+    final $$HomeInventoryItemsTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.id,
+          referencedTable: $db.homeInventoryItems,
+          getReferencedColumn: (t) => t.categoryId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$HomeInventoryItemsTableAnnotationComposer(
+                $db: $db,
+                $table: $db.homeInventoryItems,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
+}
+
+class $$InventoryCategoriesTableTableManager
+    extends
+        RootTableManager<
+          _$MoneyDatabase,
+          $InventoryCategoriesTable,
+          InventoryCategory,
+          $$InventoryCategoriesTableFilterComposer,
+          $$InventoryCategoriesTableOrderingComposer,
+          $$InventoryCategoriesTableAnnotationComposer,
+          $$InventoryCategoriesTableCreateCompanionBuilder,
+          $$InventoryCategoriesTableUpdateCompanionBuilder,
+          (InventoryCategory, $$InventoryCategoriesTableReferences),
+          InventoryCategory,
+          PrefetchHooks Function({bool homeInventoryItemsRefs})
+        > {
+  $$InventoryCategoriesTableTableManager(
+    _$MoneyDatabase db,
+    $InventoryCategoriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$InventoryCategoriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$InventoryCategoriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$InventoryCategoriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<int> iconCodePoint = const Value.absent(),
+                Value<int> colorValue = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => InventoryCategoriesCompanion(
+                id: id,
+                name: name,
+                iconCodePoint: iconCodePoint,
+                colorValue: colorValue,
+                isDefault: isDefault,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required int iconCodePoint,
+                required int colorValue,
+                Value<bool> isDefault = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => InventoryCategoriesCompanion.insert(
+                id: id,
+                name: name,
+                iconCodePoint: iconCodePoint,
+                colorValue: colorValue,
+                isDefault: isDefault,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$InventoryCategoriesTable, InventoryCategory>(
+                    table,
+                  ),
+                  $$InventoryCategoriesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({homeInventoryItemsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (homeInventoryItemsRefs) db.homeInventoryItems,
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (homeInventoryItemsRefs)
+                    await $_getPrefetchedData<
+                      InventoryCategory,
+                      $InventoryCategoriesTable,
+                      HomeInventoryItem
+                    >(
+                      currentTable: table,
+                      referencedTable: $$InventoryCategoriesTableReferences
+                          ._homeInventoryItemsRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$InventoryCategoriesTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).homeInventoryItemsRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.categoryId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$InventoryCategoriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$MoneyDatabase,
+      $InventoryCategoriesTable,
+      InventoryCategory,
+      $$InventoryCategoriesTableFilterComposer,
+      $$InventoryCategoriesTableOrderingComposer,
+      $$InventoryCategoriesTableAnnotationComposer,
+      $$InventoryCategoriesTableCreateCompanionBuilder,
+      $$InventoryCategoriesTableUpdateCompanionBuilder,
+      (InventoryCategory, $$InventoryCategoriesTableReferences),
+      InventoryCategory,
+      PrefetchHooks Function({bool homeInventoryItemsRefs})
+    >;
 typedef $$HomeInventoryItemsTableCreateCompanionBuilder =
     HomeInventoryItemsCompanion Function({
       required String id,
@@ -18854,6 +19972,11 @@ typedef $$HomeInventoryItemsTableCreateCompanionBuilder =
       Value<DateTime?> purchasedAt,
       Value<int?> unitCostMinor,
       Value<String> notes,
+      Value<int> targetQuantityMilli,
+      Value<int> lowStockThresholdMilli,
+      Value<int?> iconCodePoint,
+      Value<int?> colorValue,
+      Value<String?> categoryId,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int> rowid,
@@ -18870,10 +19993,48 @@ typedef $$HomeInventoryItemsTableUpdateCompanionBuilder =
       Value<DateTime?> purchasedAt,
       Value<int?> unitCostMinor,
       Value<String> notes,
+      Value<int> targetQuantityMilli,
+      Value<int> lowStockThresholdMilli,
+      Value<int?> iconCodePoint,
+      Value<int?> colorValue,
+      Value<String?> categoryId,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int> rowid,
     });
+
+final class $$HomeInventoryItemsTableReferences
+    extends
+        BaseReferences<
+          _$MoneyDatabase,
+          $HomeInventoryItemsTable,
+          HomeInventoryItem
+        > {
+  $$HomeInventoryItemsTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $InventoryCategoriesTable _categoryIdTable(_$MoneyDatabase db) =>
+      db.inventoryCategories.createAlias(
+        'home_inventory_items__category_id__inventory_categories__id',
+      );
+
+  $$InventoryCategoriesTableProcessedTableManager? get categoryId {
+    final $_column = $_itemColumn<String>('category_id');
+    if ($_column == null) return null;
+    final manager = $$InventoryCategoriesTableTableManager(
+      $_db,
+      $_db.inventoryCategories,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_categoryIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
 
 class $$HomeInventoryItemsTableFilterComposer
     extends Composer<_$MoneyDatabase, $HomeInventoryItemsTable> {
@@ -18934,6 +20095,26 @@ class $$HomeInventoryItemsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get targetQuantityMilli => $composableBuilder(
+    column: $table.targetQuantityMilli,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lowStockThresholdMilli => $composableBuilder(
+    column: $table.lowStockThresholdMilli,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get iconCodePoint => $composableBuilder(
+    column: $table.iconCodePoint,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnFilters(column),
@@ -18943,6 +20124,29 @@ class $$HomeInventoryItemsTableFilterComposer
     column: $table.updatedAt,
     builder: (column) => ColumnFilters(column),
   );
+
+  $$InventoryCategoriesTableFilterComposer get categoryId {
+    final $$InventoryCategoriesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.categoryId,
+      referencedTable: $db.inventoryCategories,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$InventoryCategoriesTableFilterComposer(
+            $db: $db,
+            $table: $db.inventoryCategories,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$HomeInventoryItemsTableOrderingComposer
@@ -19004,6 +20208,26 @@ class $$HomeInventoryItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get targetQuantityMilli => $composableBuilder(
+    column: $table.targetQuantityMilli,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lowStockThresholdMilli => $composableBuilder(
+    column: $table.lowStockThresholdMilli,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get iconCodePoint => $composableBuilder(
+    column: $table.iconCodePoint,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -19013,6 +20237,30 @@ class $$HomeInventoryItemsTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  $$InventoryCategoriesTableOrderingComposer get categoryId {
+    final $$InventoryCategoriesTableOrderingComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.categoryId,
+          referencedTable: $db.inventoryCategories,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$InventoryCategoriesTableOrderingComposer(
+                $db: $db,
+                $table: $db.inventoryCategories,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
 }
 
 class $$HomeInventoryItemsTableAnnotationComposer
@@ -19060,11 +20308,55 @@ class $$HomeInventoryItemsTableAnnotationComposer
   GeneratedColumn<String> get notes =>
       $composableBuilder(column: $table.notes, builder: (column) => column);
 
+  GeneratedColumn<int> get targetQuantityMilli => $composableBuilder(
+    column: $table.targetQuantityMilli,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get lowStockThresholdMilli => $composableBuilder(
+    column: $table.lowStockThresholdMilli,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get iconCodePoint => $composableBuilder(
+    column: $table.iconCodePoint,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get colorValue => $composableBuilder(
+    column: $table.colorValue,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$InventoryCategoriesTableAnnotationComposer get categoryId {
+    final $$InventoryCategoriesTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.categoryId,
+          referencedTable: $db.inventoryCategories,
+          getReferencedColumn: (t) => t.id,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$InventoryCategoriesTableAnnotationComposer(
+                $db: $db,
+                $table: $db.inventoryCategories,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return composer;
+  }
 }
 
 class $$HomeInventoryItemsTableTableManager
@@ -19078,16 +20370,9 @@ class $$HomeInventoryItemsTableTableManager
           $$HomeInventoryItemsTableAnnotationComposer,
           $$HomeInventoryItemsTableCreateCompanionBuilder,
           $$HomeInventoryItemsTableUpdateCompanionBuilder,
-          (
-            HomeInventoryItem,
-            BaseReferences<
-              _$MoneyDatabase,
-              $HomeInventoryItemsTable,
-              HomeInventoryItem
-            >,
-          ),
+          (HomeInventoryItem, $$HomeInventoryItemsTableReferences),
           HomeInventoryItem,
-          PrefetchHooks Function()
+          PrefetchHooks Function({bool categoryId})
         > {
   $$HomeInventoryItemsTableTableManager(
     _$MoneyDatabase db,
@@ -19117,6 +20402,11 @@ class $$HomeInventoryItemsTableTableManager
                 Value<DateTime?> purchasedAt = const Value.absent(),
                 Value<int?> unitCostMinor = const Value.absent(),
                 Value<String> notes = const Value.absent(),
+                Value<int> targetQuantityMilli = const Value.absent(),
+                Value<int> lowStockThresholdMilli = const Value.absent(),
+                Value<int?> iconCodePoint = const Value.absent(),
+                Value<int?> colorValue = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -19131,6 +20421,11 @@ class $$HomeInventoryItemsTableTableManager
                 purchasedAt: purchasedAt,
                 unitCostMinor: unitCostMinor,
                 notes: notes,
+                targetQuantityMilli: targetQuantityMilli,
+                lowStockThresholdMilli: lowStockThresholdMilli,
+                iconCodePoint: iconCodePoint,
+                colorValue: colorValue,
+                categoryId: categoryId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -19147,6 +20442,11 @@ class $$HomeInventoryItemsTableTableManager
                 Value<DateTime?> purchasedAt = const Value.absent(),
                 Value<int?> unitCostMinor = const Value.absent(),
                 Value<String> notes = const Value.absent(),
+                Value<int> targetQuantityMilli = const Value.absent(),
+                Value<int> lowStockThresholdMilli = const Value.absent(),
+                Value<int?> iconCodePoint = const Value.absent(),
+                Value<int?> colorValue = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int> rowid = const Value.absent(),
@@ -19161,6 +20461,11 @@ class $$HomeInventoryItemsTableTableManager
                 purchasedAt: purchasedAt,
                 unitCostMinor: unitCostMinor,
                 notes: notes,
+                targetQuantityMilli: targetQuantityMilli,
+                lowStockThresholdMilli: lowStockThresholdMilli,
+                iconCodePoint: iconCodePoint,
+                colorValue: colorValue,
+                categoryId: categoryId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 rowid: rowid,
@@ -19171,15 +20476,49 @@ class $$HomeInventoryItemsTableTableManager
                   e.readTable<$HomeInventoryItemsTable, HomeInventoryItem>(
                     table,
                   ),
-                  BaseReferences<
-                    _$MoneyDatabase,
-                    $HomeInventoryItemsTable,
-                    HomeInventoryItem
-                  >(db, table, e),
+                  $$HomeInventoryItemsTableReferences(db, table, e),
                 ),
               )
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback: ({categoryId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (categoryId) {
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.categoryId,
+                        referencedTable: $$HomeInventoryItemsTableReferences
+                            ._categoryIdTable(db),
+                        referencedColumn: $$HomeInventoryItemsTableReferences
+                            ._categoryIdTable(db)
+                            .id,
+                      ) as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
         ),
       );
 }
@@ -19194,16 +20533,9 @@ typedef $$HomeInventoryItemsTableProcessedTableManager =
       $$HomeInventoryItemsTableAnnotationComposer,
       $$HomeInventoryItemsTableCreateCompanionBuilder,
       $$HomeInventoryItemsTableUpdateCompanionBuilder,
-      (
-        HomeInventoryItem,
-        BaseReferences<
-          _$MoneyDatabase,
-          $HomeInventoryItemsTable,
-          HomeInventoryItem
-        >,
-      ),
+      (HomeInventoryItem, $$HomeInventoryItemsTableReferences),
       HomeInventoryItem,
-      PrefetchHooks Function()
+      PrefetchHooks Function({bool categoryId})
     >;
 
 class $MoneyDatabaseManager {
@@ -19246,6 +20578,8 @@ class $MoneyDatabaseManager {
       $$GroceryPurchasesTableTableManager(_db, _db.groceryPurchases);
   $$GroceryPurchaseItemsTableTableManager get groceryPurchaseItems =>
       $$GroceryPurchaseItemsTableTableManager(_db, _db.groceryPurchaseItems);
+  $$InventoryCategoriesTableTableManager get inventoryCategories =>
+      $$InventoryCategoriesTableTableManager(_db, _db.inventoryCategories);
   $$HomeInventoryItemsTableTableManager get homeInventoryItems =>
       $$HomeInventoryItemsTableTableManager(_db, _db.homeInventoryItems);
 }

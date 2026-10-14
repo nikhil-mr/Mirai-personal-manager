@@ -23,3 +23,11 @@ final groceryItemsProvider = StreamProvider.family<List<GroceryItem>, String>(
 final homeInventoryProvider = StreamProvider<List<HomeInventoryItem>>(
   (ref) => ref.watch(groceryRepositoryProvider).watchInventory(),
 );
+
+final inventoryCategoriesProvider = StreamProvider<List<InventoryCategory>>(
+  (ref) {
+    final repo = ref.watch(groceryRepositoryProvider);
+    repo.seedDefaultCategories();
+    return repo.watchCategories();
+  },
+);

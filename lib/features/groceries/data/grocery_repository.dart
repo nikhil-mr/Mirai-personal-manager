@@ -9,7 +9,12 @@ class InventoryItemInput {
     required this.quantityMilli,
     required this.unit,
     required this.category,
-    required this.location,
+    this.location = 'Pantry',
+    this.targetQuantityMilli = 0,
+    this.lowStockThresholdMilli = 0,
+    this.iconCodePoint,
+    this.colorValue,
+    this.categoryId,
     this.expiryAt,
     this.purchasedAt,
     this.unitCostMinor,
@@ -21,6 +26,11 @@ class InventoryItemInput {
   final String unit;
   final String category;
   final String location;
+  final int targetQuantityMilli;
+  final int lowStockThresholdMilli;
+  final int? iconCodePoint;
+  final int? colorValue;
+  final String? categoryId;
   final DateTime? expiryAt;
   final DateTime? purchasedAt;
   final int? unitCostMinor;
@@ -46,29 +56,148 @@ class GroceryRepository {
   final MoneyDatabase db;
   static const _uuid = Uuid();
 
-  Stream<List<HomeInventoryItem>> watchInventory({String? location}) {
-    final query = db.select(db.homeInventoryItems);
-    query.where((item) {
-      Expression<bool> filter = item.quantityMilli.isBiggerThanValue(0);
-      if (location != null) filter = filter & item.location.equals(location);
-      return filter;
+  Future<void> seedDefaultCategories() async {
+    final existing = await db.select(db.inventoryCategories).get();
+    if (existing.isNotEmpty) return;
+
+    final now = DateTime.now();
+    final defaults = [
+      InventoryCategoriesCompanion.insert(
+        id: 'cat_groceries',
+        name: 'Groceries',
+        iconCodePoint: 0xe59c, // Icons.shopping_bag_outlined
+        colorValue: 0xFFAEEBDD,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      InventoryCategoriesCompanion.insert(
+        id: 'cat_toiletries',
+        name: 'Toiletries',
+        iconCodePoint: 0xf017a, // Icons.soap_outlined
+        colorValue: 0xFFFFC5D8,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      InventoryCategoriesCompanion.insert(
+        id: 'cat_cleaning',
+        name: 'Cleaning Supplies',
+        iconCodePoint: 0xe17d, // Icons.cleaning_services_outlined
+        colorValue: 0xFFBFE0FF,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      InventoryCategoriesCompanion.insert(
+        id: 'cat_medicines',
+        name: 'Medicines',
+        iconCodePoint: 0xe3d9, // Icons.medication_outlined
+        colorValue: 0xFFE5C9FF,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      InventoryCategoriesCompanion.insert(
+        id: 'cat_stationery',
+        name: 'Stationery',
+        iconCodePoint: 0xf06d8, // Icons.edit_note_outlined
+        colorValue: 0xFFFFD49A,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+
+    await db.batch((batch) {
+      batch.insertAll(db.inventoryCategories, defaults);
     });
-    query.orderBy([
-      (item) => OrderingTerm.asc(item.expiryAt),
-      (item) => OrderingTerm.asc(item.name),
-    ]);
-    return query.watch();
   }
 
-  Future<List<HomeInventoryItem>> inventory({bool includeUsedUp = false}) {
+  Stream<List<InventoryCategory>> watchCategories() {
+    return (db.select(
+      db.inventoryCategories,
+    )..orderBy([(c) => OrderingTerm.asc(c.name)])).watch();
+  }
+
+  Future<List<InventoryCategory>> categories() {
+    return (db.select(
+      db.inventoryCategories,
+    )..orderBy([(c) => OrderingTerm.asc(c.name)])).get();
+  }
+
+  Future<void> saveCategory({
+    String? id,
+    required String name,
+    required int iconCodePoint,
+    required int colorValue,
+  }) async {
+    if (name.trim().isEmpty || name.trim().length > 80) {
+      throw ArgumentError('Enter a category name between 1 and 80 characters.');
+    }
+    final now = DateTime.now();
+    final categoryId = id ?? _uuid.v4();
+    await db
+        .into(db.inventoryCategories)
+        .insertOnConflictUpdate(
+          InventoryCategoriesCompanion(
+            id: Value(categoryId),
+            name: Value(name.trim()),
+            iconCodePoint: Value(iconCodePoint),
+            colorValue: Value(colorValue),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
+  }
+
+  Future<void> deleteCategory(String id, {String? reassignToCategoryId}) async {
+    await db.transaction(() async {
+      if (reassignToCategoryId != null) {
+        final newCategory = await (db.select(
+          db.inventoryCategories,
+        )..where((c) => c.id.equals(reassignToCategoryId))).getSingleOrNull();
+        await (db.update(
+          db.homeInventoryItems,
+        )..where((item) => item.categoryId.equals(id))).write(
+          HomeInventoryItemsCompanion(
+            categoryId: Value(reassignToCategoryId),
+            category: Value(newCategory?.name ?? 'Other'),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+      } else {
+        await (db.update(
+          db.homeInventoryItems,
+        )..where((item) => item.categoryId.equals(id))).write(
+          HomeInventoryItemsCompanion(
+            categoryId: const Value(null),
+            category: const Value('Other'),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
+      }
+      await (db.delete(
+        db.inventoryCategories,
+      )..where((c) => c.id.equals(id))).go();
+    });
+  }
+
+  Stream<List<HomeInventoryItem>> watchInventory({bool includeUsedUp = true}) {
     final query = db.select(db.homeInventoryItems);
     if (!includeUsedUp) {
       query.where((item) => item.quantityMilli.isBiggerThanValue(0));
     }
-    query.orderBy([
-      (item) => OrderingTerm.asc(item.expiryAt),
-      (item) => OrderingTerm.asc(item.name),
-    ]);
+    query.orderBy([(item) => OrderingTerm.asc(item.name)]);
+    return query.watch();
+  }
+
+  Future<List<HomeInventoryItem>> inventory({bool includeUsedUp = true}) {
+    final query = db.select(db.homeInventoryItems);
+    if (!includeUsedUp) {
+      query.where((item) => item.quantityMilli.isBiggerThanValue(0));
+    }
+    query.orderBy([(item) => OrderingTerm.asc(item.name)]);
     return query.get();
   }
 
@@ -77,11 +206,6 @@ class GroceryRepository {
     required InventoryItemInput item,
   }) async {
     _validateInventoryInput(item);
-    if (id == null && item.quantityMilli == 0) {
-      throw ArgumentError(
-        'New inventory items need a quantity greater than zero.',
-      );
-    }
     final old = id == null ? null : await _inventoryItem(id);
     if (id != null && old == null) {
       throw StateError('Inventory item not found.');
@@ -99,6 +223,11 @@ class GroceryRepository {
               item.category.trim().isEmpty ? 'Other' : item.category.trim(),
             ),
             location: Value(item.location.trim()),
+            targetQuantityMilli: Value(item.targetQuantityMilli),
+            lowStockThresholdMilli: Value(item.lowStockThresholdMilli),
+            iconCodePoint: Value(item.iconCodePoint),
+            colorValue: Value(item.colorValue),
+            categoryId: Value(item.categoryId),
             expiryAt: Value(item.expiryAt),
             purchasedAt: Value(item.purchasedAt),
             unitCostMinor: Value(item.unitCostMinor),
@@ -148,6 +277,11 @@ class GroceryRepository {
                   item.category.trim().isEmpty ? 'Other' : item.category.trim(),
                 ),
                 location: Value(item.location.trim()),
+                targetQuantityMilli: Value(item.targetQuantityMilli),
+                lowStockThresholdMilli: Value(item.lowStockThresholdMilli),
+                iconCodePoint: Value(item.iconCodePoint),
+                colorValue: Value(item.colorValue),
+                categoryId: Value(item.categoryId),
                 expiryAt: Value(item.expiryAt),
                 purchasedAt: Value(item.purchasedAt),
                 unitCostMinor: Value(item.unitCostMinor),
