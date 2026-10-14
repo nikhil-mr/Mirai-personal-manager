@@ -110,7 +110,7 @@ class GroceryRepository {
     ];
 
     await db.batch((batch) {
-      batch.insertAll(db.inventoryCategories, defaults);
+      batch.insertAllOnConflictUpdate(db.inventoryCategories, defaults);
     });
   }
 

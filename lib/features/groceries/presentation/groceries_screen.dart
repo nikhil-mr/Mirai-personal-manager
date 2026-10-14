@@ -133,7 +133,8 @@ IconData inventoryIconForCodePoint(int? codePoint) {
 }
 
 class GroceriesScreen extends ConsumerStatefulWidget {
-  const GroceriesScreen({super.key});
+  const GroceriesScreen({this.quickAdd, super.key});
+  final String? quickAdd;
 
   @override
   ConsumerState<GroceriesScreen> createState() => _GroceriesScreenState();
@@ -145,6 +146,33 @@ class _GroceriesScreenState extends ConsumerState<GroceriesScreen> {
   InventoryCategory? _selectedCategory;
   String _selectedStatusFilter = 'All';
   String _selectedSortOrder = 'Name: A → Z';
+  bool _quickAddHandled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.quickAdd == 'item') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_quickAddHandled) {
+          _quickAddHandled = true;
+          _showAddOrEditItemForm(context);
+        }
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(GroceriesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.quickAdd == 'item' && !_quickAddHandled) {
+      _quickAddHandled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showAddOrEditItemForm(context);
+        }
+      });
+    }
+  }
 
   final _units = const [
     'kg',
@@ -1061,378 +1089,7 @@ class _GroceriesScreenState extends ConsumerState<GroceriesScreen> {
     BuildContext context, {
     HomeInventoryItem? editItem,
   }) {
-    final categories =
-        ref.read(inventoryCategoriesProvider).asData?.value ?? [];
-
-    final nameController = TextEditingController(text: editItem?.name ?? '');
-    final currentQtyController = TextEditingController(
-      text: editItem != null
-          ? (editItem.quantityMilli / 1000.0).toString()
-          : '1',
-    );
-    final targetQtyController = TextEditingController(
-      text: editItem != null && editItem.targetQuantityMilli > 0
-          ? (editItem.targetQuantityMilli / 1000.0).toString()
-          : '',
-    );
-    final lowThresholdController = TextEditingController(
-      text: editItem != null && editItem.lowStockThresholdMilli > 0
-          ? (editItem.lowStockThresholdMilli / 1000.0).toString()
-          : '',
-    );
-    final notesController = TextEditingController(text: editItem?.notes ?? '');
-
-    String selectedUnit = editItem?.unit ?? 'Piece';
-    if (!_units.contains(selectedUnit)) selectedUnit = 'Other';
-
-    InventoryCategory? selectedCat;
-    if (editItem != null) {
-      selectedCat =
-          categories.where((c) => c.id == editItem.categoryId).firstOrNull ??
-          categories
-              .where(
-                (c) => c.name.toLowerCase() == editItem.category.toLowerCase(),
-              )
-              .firstOrNull;
-    }
-    selectedCat ??= categories.firstOrNull;
-
-    DateTime? selectedExpiry = editItem?.expiryAt;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) {
-          final currentVal = double.tryParse(currentQtyController.text) ?? 0.0;
-          final targetVal = double.tryParse(targetQtyController.text) ?? 0.0;
-          final lowVal = double.tryParse(lowThresholdController.text) ?? 0.0;
-
-          final status = calculateStockStatus(
-            currentVal,
-            targetVal,
-            lowStockThreshold: lowVal,
-          );
-
-          return Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-              top: 16,
-              left: 16,
-              right: 16,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        editItem == null ? 'Add Inventory Item' : 'Edit Item',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(ctx),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Item Name
-                  TextField(
-                    controller: nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Item Name *',
-                      hintText: 'e.g. Rice, Milk, Shampoo',
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Category Dropdown
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<InventoryCategory>(
-                          value: selectedCat,
-                          decoration: const InputDecoration(
-                            labelText: 'Category *',
-                            isDense: true,
-                          ),
-                          items: categories
-                              .map(
-                                (c) => DropdownMenuItem(
-                                  value: c,
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        inventoryIconForCodePoint(
-                                          c.iconCodePoint,
-                                        ),
-                                        size: 18,
-                                        color: Color(c.colorValue),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(c.name),
-                                    ],
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (val) =>
-                              setModalState(() => selectedCat = val),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Manage categories',
-                        icon: const Icon(Icons.settings_outlined),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _showCategoryManagementSheet(context);
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Unit Dropdown
-                  DropdownButtonFormField<String>(
-                    value: selectedUnit,
-                    decoration: const InputDecoration(
-                      labelText: 'Unit *',
-                      isDense: true,
-                    ),
-                    items: _units
-                        .map((u) => DropdownMenuItem(value: u, child: Text(u)))
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setModalState(() => selectedUnit = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Quantities (Current & Target)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: currentQtyController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Current Qty *',
-                            suffixText: selectedUnit,
-                            isDense: true,
-                          ),
-                          onChanged: (_) => setModalState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextField(
-                          controller: targetQtyController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Target Qty',
-                            suffixText: selectedUnit,
-                            isDense: true,
-                          ),
-                          onChanged: (_) => setModalState(() {}),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Low stock threshold & Expiry date
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: lowThresholdController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Low Stock Alert Qty',
-                            suffixText: selectedUnit,
-                            isDense: true,
-                          ),
-                          onChanged: (_) => setModalState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: selectedExpiry ?? DateTime.now(),
-                              firstDate: DateTime.now(),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked != null) {
-                              setModalState(() => selectedExpiry = picked);
-                            }
-                          },
-                          icon: const Icon(Icons.calendar_today, size: 16),
-                          label: Text(
-                            selectedExpiry != null
-                                ? DateFormat.yMd().format(selectedExpiry!)
-                                : 'Expiry Date',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Notes
-                  TextField(
-                    controller: notesController,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes',
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Live Stock Preview Card
-                  BrutalCard(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Stock Preview',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Text(
-                              targetVal > 0
-                                  ? '$currentVal / $targetVal $selectedUnit'
-                                  : '$currentVal $selectedUnit',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: status.color.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                status.label,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: status.color,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (targetVal > 0) ...[
-                          const SizedBox(height: 6),
-                          StockProgressBar(
-                            currentQty: currentVal,
-                            targetQty: targetVal,
-                            lowStockThreshold: lowVal,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-
-                  // Save Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.brand,
-                        foregroundColor: AppColors.lightText,
-                      ),
-                      onPressed: () async {
-                        final name = nameController.text.trim();
-                        if (name.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Please enter an item name.'),
-                            ),
-                          );
-                          return;
-                        }
-
-                        final currentMilli = (currentVal * 1000).round();
-                        final targetMilli = (targetVal * 1000).round();
-                        final lowMilli = (lowVal * 1000).round();
-
-                        try {
-                          await ref
-                              .read(groceryRepositoryProvider)
-                              .saveInventoryItem(
-                                id: editItem?.id,
-                                item: InventoryItemInput(
-                                  name: name,
-                                  quantityMilli: currentMilli,
-                                  targetQuantityMilli: targetMilli,
-                                  lowStockThresholdMilli: lowMilli,
-                                  unit: selectedUnit,
-                                  category: selectedCat?.name ?? 'Other',
-                                  categoryId: selectedCat?.id,
-                                  iconCodePoint: selectedCat?.iconCodePoint,
-                                  colorValue: selectedCat?.colorValue,
-                                  expiryAt: selectedExpiry,
-                                  notes: notesController.text.trim(),
-                                ),
-                              );
-                          if (ctx.mounted) Navigator.pop(ctx);
-                        } catch (e) {
-                          if (ctx.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Could not save item: $e'),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      child: const Text('Save Item'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+    showAddOrEditItemForm(context, ref, editItem: editItem);
   }
 
   // ---------------------------------------------------------------------------
@@ -2355,4 +2012,502 @@ class _GroceriesScreenState extends ConsumerState<GroceriesScreen> {
       ),
     );
   }
+}
+
+Future<void> showAddOrEditItemForm(
+  BuildContext context,
+  WidgetRef ref, {
+  HomeInventoryItem? editItem,
+}) async {
+  final repo = ref.read(groceryRepositoryProvider);
+  repo.seedDefaultCategories();
+
+  if (!context.mounted) return;
+
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (ctx) => _AddItemFormSheet(editItem: editItem),
+  );
+}
+
+class _AddItemFormSheet extends ConsumerStatefulWidget {
+  const _AddItemFormSheet({this.editItem});
+  final HomeInventoryItem? editItem;
+
+  @override
+  ConsumerState<_AddItemFormSheet> createState() => _AddItemFormSheetState();
+}
+
+class _AddItemFormSheetState extends ConsumerState<_AddItemFormSheet> {
+  static const _units = [
+    'kg',
+    'g',
+    'L',
+    'ml',
+    'Piece',
+    'Pack',
+    'Bottle',
+    'Box',
+    'Packet',
+    'Tube',
+    'Can',
+    'Dozen',
+    'Other',
+  ];
+
+  late final TextEditingController _nameController;
+  late final TextEditingController _currentQtyController;
+  late final TextEditingController _targetQtyController;
+  late final TextEditingController _lowThresholdController;
+  late final TextEditingController _notesController;
+
+  String _selectedUnit = 'Piece';
+  InventoryCategory? _selectedCat;
+  DateTime? _selectedExpiry;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = widget.editItem;
+    _nameController = TextEditingController(text: item?.name ?? '');
+    _currentQtyController = TextEditingController(
+      text: item != null ? (item.quantityMilli / 1000.0).toString() : '1',
+    );
+    _targetQtyController = TextEditingController(
+      text: item != null && item.targetQuantityMilli > 0
+          ? (item.targetQuantityMilli / 1000.0).toString()
+          : '',
+    );
+    _lowThresholdController = TextEditingController(
+      text: item != null && item.lowStockThresholdMilli > 0
+          ? (item.lowStockThresholdMilli / 1000.0).toString()
+          : '',
+    );
+    _notesController = TextEditingController(text: item?.notes ?? '');
+
+    _selectedUnit = item?.unit ?? 'Piece';
+    if (!_units.contains(_selectedUnit)) _selectedUnit = 'Other';
+    _selectedExpiry = item?.expiryAt;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _currentQtyController.dispose();
+    _targetQtyController.dispose();
+    _lowThresholdController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final categories =
+        ref.watch(inventoryCategoriesProvider).asData?.value ?? [];
+
+    if (_selectedCat == null && categories.isNotEmpty) {
+      if (widget.editItem != null) {
+        _selectedCat =
+            categories
+                .where((c) => c.id == widget.editItem!.categoryId)
+                .firstOrNull ??
+            categories
+                .where(
+                  (c) =>
+                      c.name.toLowerCase() ==
+                      widget.editItem!.category.toLowerCase(),
+                )
+                .firstOrNull;
+      }
+      _selectedCat ??= categories.firstOrNull;
+    }
+
+    final currentVal = double.tryParse(_currentQtyController.text) ?? 0.0;
+    final targetVal = double.tryParse(_targetQtyController.text) ?? 0.0;
+    final lowVal = double.tryParse(_lowThresholdController.text) ?? 0.0;
+
+    final status = calculateStockStatus(
+      currentVal,
+      targetVal,
+      lowStockThreshold: lowVal,
+    );
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        top: 16,
+        left: 16,
+        right: 16,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  widget.editItem == null ? 'Add Inventory Item' : 'Edit Item',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Item Name
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Item Name *',
+                hintText: 'e.g. Rice, Milk, Shampoo',
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Category Dropdown
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<InventoryCategory>(
+                    value: _selectedCat,
+                    decoration: const InputDecoration(
+                      labelText: 'Category *',
+                      isDense: true,
+                    ),
+                    items: categories
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  inventoryIconForCodePoint(c.iconCodePoint),
+                                  size: 18,
+                                  color: Color(c.colorValue),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(c.name),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (val) => setState(() => _selectedCat = val),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Manage categories',
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    showCategoryManagementSheet(context, ref);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Unit Dropdown
+            DropdownButtonFormField<String>(
+              value: _selectedUnit,
+              decoration: const InputDecoration(
+                labelText: 'Unit *',
+                isDense: true,
+              ),
+              items: _units
+                  .map((u) => DropdownMenuItem(value: u, child: Text(u)))
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) setState(() => _selectedUnit = val);
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // Quantities (Current & Target)
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _currentQtyController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Current Qty *',
+                      suffixText: _selectedUnit,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _targetQtyController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Target Qty',
+                      suffixText: _selectedUnit,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Low stock threshold & Expiry date
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _lowThresholdController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Low Stock Alert Qty',
+                      suffixText: _selectedUnit,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _selectedExpiry ?? DateTime.now(),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setState(() => _selectedExpiry = picked);
+                      }
+                    },
+                    icon: const Icon(Icons.calendar_today, size: 16),
+                    label: Text(
+                      _selectedExpiry != null
+                          ? DateFormat.yMd().format(_selectedExpiry!)
+                          : 'Expiry Date',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Notes
+            TextField(
+              controller: _notesController,
+              decoration: const InputDecoration(
+                labelText: 'Notes',
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Live Stock Preview Card
+            BrutalCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Stock Preview',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text(
+                        targetVal > 0
+                            ? '$currentVal / $targetVal $_selectedUnit'
+                            : '$currentVal $_selectedUnit',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: status.color.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          status.label,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: status.color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (targetVal > 0) ...[
+                    const SizedBox(height: 6),
+                    StockProgressBar(
+                      currentQty: currentVal,
+                      targetQty: targetVal,
+                      lowStockThreshold: lowVal,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+
+            // Save Button
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.brand,
+                  foregroundColor: AppColors.lightText,
+                ),
+                onPressed: () async {
+                  final name = _nameController.text.trim();
+                  if (name.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please enter an item name.'),
+                      ),
+                    );
+                    return;
+                  }
+
+                  final currentMilli = (currentVal * 1000).round();
+                  final targetMilli = (targetVal * 1000).round();
+                  final lowMilli = (lowVal * 1000).round();
+
+                  try {
+                    await ref
+                        .read(groceryRepositoryProvider)
+                        .saveInventoryItem(
+                          id: widget.editItem?.id,
+                          item: InventoryItemInput(
+                            name: name,
+                            quantityMilli: currentMilli,
+                            targetQuantityMilli: targetMilli,
+                            lowStockThresholdMilli: lowMilli,
+                            unit: _selectedUnit,
+                            category: _selectedCat?.name ?? 'Other',
+                            categoryId: _selectedCat?.id,
+                            iconCodePoint: _selectedCat?.iconCodePoint,
+                            colorValue: _selectedCat?.colorValue,
+                            expiryAt: _selectedExpiry,
+                            notes: _notesController.text.trim(),
+                          ),
+                        );
+                    if (context.mounted) Navigator.pop(context);
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Could not save item: $e')),
+                      );
+                    }
+                  }
+                },
+                child: const Text('Save Item'),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void showCategoryManagementSheet(BuildContext context, WidgetRef ref) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (ctx) => Consumer(
+      builder: (context, ref, _) {
+        final categories =
+            ref.watch(inventoryCategoriesProvider).asData?.value ?? [];
+        final items = ref.watch(homeInventoryProvider).asData?.value ?? [];
+
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    'Manage Categories',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: categories.length,
+                  itemBuilder: (context, i) {
+                    final cat = categories[i];
+                    final catItems = items
+                        .where(
+                          (item) =>
+                              item.categoryId == cat.id ||
+                              item.category.toLowerCase() ==
+                                  cat.name.toLowerCase(),
+                        )
+                        .toList();
+
+                    return Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Color(cat.colorValue),
+                          child: Icon(
+                            inventoryIconForCodePoint(cat.iconCodePoint),
+                            color: const Color(0xFF111111),
+                            size: 20,
+                          ),
+                        ),
+                        title: Text(cat.name),
+                        subtitle: Text('${catItems.length} items'),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
 }

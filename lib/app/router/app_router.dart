@@ -135,7 +135,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: AppRoutes.groceries,
                 name: 'groceries',
-                builder: (context, state) => const GroceriesScreen(),
+                builder: (context, state) => GroceriesScreen(
+                  quickAdd: state.uri.queryParameters['quickAdd'],
+                ),
               ),
             ],
           ),
