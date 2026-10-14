@@ -87,6 +87,7 @@ class LaunchScreen extends ConsumerStatefulWidget {
 class _LaunchScreenState extends ConsumerState<LaunchScreen> {
   String? _error;
   bool _checking = false;
+  double _progress = 0.2;
 
   @override
   void initState() {
@@ -98,11 +99,12 @@ class _LaunchScreenState extends ConsumerState<LaunchScreen> {
     if (_checking) return;
     _checking = true;
     try {
+      setState(() => _progress = 0.5);
       final done =
           ref.read(sharedPreferencesProvider).getBool(_setupKey) ?? false;
-      // Opening the local database runs its real schema checks while the
-      // branded splash is visible; it does not seed or alter financial data.
       await ref.read(moneyDatabaseProvider).customSelect('SELECT 1').get();
+      setState(() => _progress = 1.0);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
       if (mounted) context.go(done ? AppRoutes.startup : AppRoutes.welcome);
     } catch (error) {
       if (mounted) {
@@ -114,60 +116,309 @@ class _LaunchScreenState extends ConsumerState<LaunchScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _Splash(error: _error, onRetry: _resolveLaunch);
+  Widget build(BuildContext context) => MiraiLoadingView(
+    progress: _progress,
+    error: _error,
+    onRetry: _resolveLaunch,
+  );
 }
 
-class _Splash extends StatelessWidget {
-  const _Splash({this.error, this.onRetry});
+class MiraiLoadingView extends StatefulWidget {
+  const MiraiLoadingView({
+    required this.progress,
+    this.error,
+    this.onRetry,
+    super.key,
+  });
+
+  final double progress;
   final String? error;
   final VoidCallback? onRetry;
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _yellow,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, box) => Column(
-            children: [
-              const SizedBox(height: 38),
-              const Text(
-                'Mirai',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 40,
-                  height: 1,
-                  fontWeight: FontWeight.w900,
-                  color: _ink,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Organize today. Build a better tomorrow.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(error!, textAlign: TextAlign.center),
-                ),
-                TextButton(onPressed: onRetry, child: const Text('Retry')),
-              ],
-              const Spacer(),
-              SizedBox(
-                height: box.maxHeight * .66,
-                child: Image.asset(
-                  'assets/images/1.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const Icon(Icons.pets, size: 140),
-                ),
-              ),
-            ],
+  State<MiraiLoadingView> createState() => _MiraiLoadingViewState();
+}
+
+class _MiraiLoadingViewState extends State<MiraiLoadingView>
+    with TickerProviderStateMixin {
+  late final AnimationController _floatController;
+  late final AnimationController _fadeController;
+  late final Animation<double> _titleFade;
+  late final Animation<Offset> _titleSlide;
+  late final Animation<double> _taglineFade;
+  late final Animation<double> _shapesFloat;
+  late final Animation<double> _pulseFade;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _floatController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat(reverse: true);
+
+    _shapesFloat = Tween<double>(begin: -5.0, end: 5.0).animate(
+      CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
+    );
+
+    _pulseFade = Tween<double>(begin: 0.35, end: 0.85).animate(
+      CurvedAnimation(parent: _floatController, curve: Curves.easeInOut),
+    );
+
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+
+    _titleFade = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _fadeController,
+        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
+      ),
+    );
+
+    _titleSlide = Tween<Offset>(begin: const Offset(0.0, 0.2), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _fadeController,
+            curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
           ),
-        ),
+        );
+
+    _taglineFade = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _fadeController,
+        curve: const Interval(0.35, 0.85, curve: Curves.easeOut),
+      ),
+    );
+
+    _fadeController.forward();
+  }
+
+  @override
+  void dispose() {
+    _floatController.dispose();
+    _fadeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const brandYellow = Color(0xFFFFDF24);
+    const brandCream = Color(0xFFFFF9F0);
+    const brandInk = Color(0xFF111111);
+    const trackYellow = Color(0xFFE0C220);
+
+    return Scaffold(
+      backgroundColor: brandYellow,
+      body: Stack(
+        children: [
+          AnimatedBuilder(
+            animation: _floatController,
+            builder: (context, child) {
+              return Stack(
+                children: [
+                  Positioned(
+                    top: -60 + _shapesFloat.value,
+                    right: -50 + _shapesFloat.value,
+                    child: Container(
+                      width: 220,
+                      height: 220,
+                      decoration: const BoxDecoration(
+                        color: brandCream,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: -40 - _shapesFloat.value,
+                    left: -40 + _shapesFloat.value,
+                    child: Container(
+                      width: 180,
+                      height: 180,
+                      decoration: BoxDecoration(
+                        color: brandCream,
+                        borderRadius: BorderRadius.circular(90),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 100 + (_shapesFloat.value * 0.5),
+                    left: 40,
+                    child: Opacity(
+                      opacity: _pulseFade.value,
+                      child: Container(
+                        width: 16,
+                        height: 16,
+                        decoration: const BoxDecoration(
+                          color: brandInk,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 240 - (_shapesFloat.value * 0.5),
+                    right: 36,
+                    child: Opacity(
+                      opacity: _pulseFade.value,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: const BoxDecoration(
+                          color: brandCream,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 120 + (_shapesFloat.value * 0.5),
+                    right: 60,
+                    child: Opacity(
+                      opacity: _pulseFade.value,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          color: brandInk,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 48),
+                      FadeTransition(
+                        opacity: _titleFade,
+                        child: SlideTransition(
+                          position: _titleSlide,
+                          child: const Text(
+                            'Mirai',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 44,
+                              fontWeight: FontWeight.w900,
+                              color: brandInk,
+                              height: 1.0,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FadeTransition(
+                        opacity: _taglineFade,
+                        child: const Text(
+                          'Organize today.\nBuild a better tomorrow.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: brandInk,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      if (widget.error != null) ...[
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: brandCream,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: brandInk, width: 1.5),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                widget.error!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: brandInk,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (widget.onRetry != null) ...[
+                                const SizedBox(height: 8),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: brandInk,
+                                    foregroundColor: brandCream,
+                                  ),
+                                  onPressed: widget.onRetry,
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      SizedBox(
+                        height: (constraints.maxHeight * 0.28).clamp(
+                          120.0,
+                          220.0,
+                        ),
+                        child: Image.asset(
+                          'assets/images/0.png',
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) => const Icon(
+                            Icons.pets,
+                            size: 100,
+                            color: brandInk,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: 220,
+                        height: 8,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: Stack(
+                            children: [
+                              Container(color: trackYellow),
+                              FractionallySizedBox(
+                                widthFactor: widget.progress.clamp(0.0, 1.0),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  color: brandInk,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'LOADING...',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2.0,
+                          color: brandInk,
+                        ),
+                      ),
+                      const SizedBox(height: 36),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1013,6 +1264,7 @@ class _StartupScreenState extends ConsumerState<StartupScreen> {
   String? _error;
   bool _running = false;
   int _startupStage = 0;
+
   @override
   void initState() {
     super.initState();
@@ -1033,6 +1285,7 @@ class _StartupScreenState extends ConsumerState<StartupScreen> {
       setState(() => _startupStage = 2);
       await repository.calculateBalances();
       setState(() => _startupStage = 3);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
       if (mounted) context.go(AppRoutes.today);
     } catch (error) {
       if (mounted) {
@@ -1044,79 +1297,14 @@ class _StartupScreenState extends ConsumerState<StartupScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: _yellow,
-    body: SafeArea(
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: _BrutalCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Loading...',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Preparing your day.',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  LinearProgressIndicator(
-                    value: _startupStage / 4,
-                    minHeight: 12,
-                    color: _yellow,
-                    backgroundColor: const Color(0xFFECE7DD),
-                  ),
-                  const SizedBox(height: 18),
-                  for (final entry in [
-                    'Initializing local data',
-                    'Loading accounts and transactions',
-                    'Updating dashboard summaries',
-                    'Preparing your workspace',
-                  ].indexed)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 5),
-                      child: Row(
-                        children: [
-                          Icon(
-                            entry.$1 < _startupStage
-                                ? Icons.check_circle
-                                : entry.$1 == _startupStage
-                                ? Icons.sync
-                                : Icons.circle_outlined,
-                            size: 19,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(child: Text(entry.$2)),
-                        ],
-                      ),
-                    ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _error!,
-                      style: const TextStyle(
-                        color: Colors.red,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _PrimaryButton(label: 'Retry', onPressed: _initialize),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final progress = (_startupStage + 1) / 4.0;
+    return MiraiLoadingView(
+      progress: progress,
+      error: _error,
+      onRetry: _initialize,
+    );
+  }
 }
 
 class _PrimaryButton extends StatelessWidget {
