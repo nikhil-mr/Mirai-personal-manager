@@ -30,10 +30,26 @@ class _PlacesScreenState extends ConsumerState<PlacesScreen> {
   String _tripSort = 'Start date';
   DateTimeRange? _tripDateRange;
 
+  bool _quickAddHandled = false;
+
   @override
   void initState() {
     super.initState();
-    if (widget.quickAdd != null) {
+    _checkQuickAdd();
+  }
+
+  @override
+  void didUpdateWidget(PlacesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.quickAdd != oldWidget.quickAdd) {
+      _quickAddHandled = false;
+    }
+    _checkQuickAdd();
+  }
+
+  void _checkQuickAdd() {
+    if (widget.quickAdd != null && !_quickAddHandled) {
+      _quickAddHandled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         switch (widget.quickAdd) {
@@ -424,233 +440,8 @@ class _PlacesScreenState extends ConsumerState<PlacesScreen> {
     ),
   );
 
-  Future<void> _editPlace([SavedPlace? place]) async {
-    final name = TextEditingController(text: place?.name ?? '');
-    final category = TextEditingController(text: place?.category ?? 'Other');
-    final address = TextEditingController(text: place?.address ?? '');
-    final mapUrl = TextEditingController(text: place?.mapUrl ?? '');
-    final notes = TextEditingController(text: place?.notes ?? '');
-    final review = TextEditingController(text: place?.review ?? '');
-    final rating = ValueNotifier<int?>(place?.rating);
-    final state =
-        ValueNotifier<({DateTime? planned, String status, DateTime? visited})>((
-          planned: place?.plannedAt,
-          status: place?.status ?? 'planned',
-          visited: place?.visitedAt,
-        ));
-    final formKey = GlobalKey<FormState>();
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(place == null ? 'Save a place' : 'Edit place'),
-        content: SizedBox(
-          width: 480,
-          child: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: name,
-                    autofocus: true,
-                    maxLength: 160,
-                    decoration: const InputDecoration(
-                      labelText: 'Place name *',
-                    ),
-                    validator: (v) =>
-                        v == null || v.trim().isEmpty ? 'Enter a name' : null,
-                  ),
-                  TextField(
-                    controller: category,
-                    decoration: const InputDecoration(
-                      labelText: 'Category',
-                      helperText: 'Use a suggested or custom category',
-                    ),
-                  ),
-                  TextField(
-                    controller: address,
-                    decoration: const InputDecoration(labelText: 'Address'),
-                  ),
-                  TextFormField(
-                    controller: mapUrl,
-                    keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
-                      labelText: 'Place link',
-                      hintText: 'Paste a Google Maps link',
-                      helperText: 'Visit opens this link. Leave blank to search Google Maps.',
-                    ),
-                    validator: (value) {
-                      final text = value?.trim() ?? '';
-                      if (text.isEmpty) return null;
-                      final uri = Uri.tryParse(text);
-                      if (uri == null ||
-                          !{'http', 'https'}.contains(uri.scheme) ||
-                          uri.host.isEmpty) {
-                        return 'Enter a valid http or https link';
-                      }
-                      return null;
-                    },
-                  ),
-                  TextField(
-                    controller: notes,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Notes'),
-                  ),
-                  ValueListenableBuilder(
-                    valueListenable: state,
-                    builder: (_, value, _) => Column(
-                      children: [
-                        DropdownButtonFormField<String>(
-                          initialValue: value.status,
-                          decoration: const InputDecoration(
-                            labelText: 'Visit status',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'planned',
-                              child: Text('Planned'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'visited',
-                              child: Text('Visited'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'skipped',
-                              child: Text('Skipped'),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              state.value = (
-                                planned: value.planned,
-                                status: v,
-                                visited: v == 'visited'
-                                    ? (value.visited ?? DateTime.now())
-                                    : value.visited,
-                              );
-                            }
-                          },
-                        ),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                context: dialogContext,
-                                firstDate: DateTime(2000),
-                                lastDate: DateTime(2100),
-                                initialDate: value.planned ?? DateTime.now(),
-                              );
-                              if (d != null) {
-                                state.value = (
-                                  planned: d,
-                                  status: state.value.status,
-                                  visited: state.value.visited,
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.event_outlined),
-                            label: Text(
-                              value.planned == null
-                                  ? 'Plan a visit'
-                                  : 'Planned ${DateFormat.yMMMd().format(value.planned!)}',
-                            ),
-                          ),
-                        ),
-                        if (value.planned != null)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextButton(
-                              onPressed: () => state.value = (
-                                planned: null,
-                                status: value.status,
-                                visited: value.visited,
-                              ),
-                              child: const Text('Clear planned date'),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  ValueListenableBuilder<int?>(
-                    valueListenable: rating,
-                    builder: (_, value, _) => DropdownButtonFormField<int?>(
-                      initialValue: value,
-                      decoration: const InputDecoration(
-                        labelText: 'Personal rating',
-                      ),
-                      items: const [
-                        DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('Not rated'),
-                        ),
-                        DropdownMenuItem(value: 1, child: Text('1 star')),
-                        DropdownMenuItem(value: 2, child: Text('2 stars')),
-                        DropdownMenuItem(value: 3, child: Text('3 stars')),
-                        DropdownMenuItem(value: 4, child: Text('4 stars')),
-                        DropdownMenuItem(value: 5, child: Text('5 stars')),
-                      ],
-                      onChanged: (v) => rating.value = v,
-                    ),
-                  ),
-                  TextField(
-                    controller: review,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Personal review',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(dialogContext, true);
-              }
-            },
-            child: const Text('Save place'),
-          ),
-        ],
-      ),
-    );
-    if (result == true && mounted) {
-      try {
-        await ref
-            .read(placesRepositoryProvider)
-            .savePlace(
-              id: place?.id,
-              name: name.text,
-              category: category.text,
-              address: address.text,
-              mapUrl: mapUrl.text,
-              latitude: place?.latitude,
-              longitude: place?.longitude,
-              notes: notes.text,
-              plannedAt: state.value.planned,
-              status: state.value.status,
-              rating: rating.value,
-              review: review.text,
-              visitedAt: state.value.visited,
-            );
-      } catch (error) {
-        _showMessage(error.toString());
-      }
-    }
-    for (final controller in [name, category, address, mapUrl, notes, review]) {
-      controller.dispose();
-    }
-    rating.dispose();
-    state.dispose();
-  }
+  Future<void> _editPlace([SavedPlace? place]) =>
+      showAddOrEditPlaceForm(context, ref, place);
 
   Future<void> _openMap(SavedPlace place) async {
     final uri = mapsSearchUri(
@@ -1646,3 +1437,237 @@ IconData _categoryIcon(String category) => switch (category.toLowerCase()) {
   'shopping' => Icons.shopping_bag_outlined,
   _ => Icons.place_outlined,
 };
+
+Future<void> showAddOrEditPlaceForm(
+  BuildContext context,
+  WidgetRef ref, [
+  SavedPlace? place,
+]) async {
+  final name = TextEditingController(text: place?.name ?? '');
+  final category = TextEditingController(text: place?.category ?? 'Other');
+  final address = TextEditingController(text: place?.address ?? '');
+  final mapUrl = TextEditingController(text: place?.mapUrl ?? '');
+  final notes = TextEditingController(text: place?.notes ?? '');
+  final review = TextEditingController(text: place?.review ?? '');
+  final rating = ValueNotifier<int?>(place?.rating);
+  final state =
+      ValueNotifier<({DateTime? planned, String status, DateTime? visited})>((
+        planned: place?.plannedAt,
+        status: place?.status ?? 'planned',
+        visited: place?.visitedAt,
+      ));
+  final formKey = GlobalKey<FormState>();
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(place == null ? 'Save a place' : 'Edit place'),
+      content: SizedBox(
+        width: 480,
+        child: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: name,
+                  autofocus: true,
+                  maxLength: 160,
+                  decoration: const InputDecoration(labelText: 'Place name *'),
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Enter a name' : null,
+                ),
+                TextField(
+                  controller: category,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    helperText: 'Use a suggested or custom category',
+                  ),
+                ),
+                TextField(
+                  controller: address,
+                  decoration: const InputDecoration(labelText: 'Address'),
+                ),
+                TextFormField(
+                  controller: mapUrl,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Place link',
+                    hintText: 'Paste a Google Maps link',
+                    helperText: 'Visit opens this link. Leave blank to search Google Maps.',
+                  ),
+                  validator: (value) {
+                    final text = value?.trim() ?? '';
+                    if (text.isEmpty) return null;
+                    final uri = Uri.tryParse(text);
+                    if (uri == null ||
+                        !{'http', 'https'}.contains(uri.scheme) ||
+                        uri.host.isEmpty) {
+                      return 'Enter a valid http or https link';
+                    }
+                    return null;
+                  },
+                ),
+                TextField(
+                  controller: notes,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Notes'),
+                ),
+                ValueListenableBuilder(
+                  valueListenable: state,
+                  builder: (_, value, _) => Column(
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: value.status,
+                        decoration: const InputDecoration(
+                          labelText: 'Visit status',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'planned',
+                            child: Text('Planned'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'visited',
+                            child: Text('Visited'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'skipped',
+                            child: Text('Skipped'),
+                          ),
+                        ],
+                        onChanged: (v) {
+                          if (v != null) {
+                            state.value = (
+                              planned: value.planned,
+                              status: v,
+                              visited: v == 'visited'
+                                  ? (value.visited ?? DateTime.now())
+                                  : value.visited,
+                            );
+                          }
+                        },
+                      ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () async {
+                            final d = await showDatePicker(
+                              context: dialogContext,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100),
+                              initialDate: value.planned ?? DateTime.now(),
+                            );
+                            if (d != null) {
+                              state.value = (
+                                planned: d,
+                                status: state.value.status,
+                                visited: state.value.visited,
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.event_outlined),
+                          label: Text(
+                            value.planned == null
+                                ? 'Plan a visit'
+                                : 'Planned ${DateFormat.yMMMd().format(value.planned!)}',
+                          ),
+                        ),
+                      ),
+                      if (value.planned != null)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            onPressed: () => state.value = (
+                              planned: null,
+                              status: value.status,
+                              visited: value.visited,
+                            ),
+                            child: const Text('Clear planned date'),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                ValueListenableBuilder<int?>(
+                  valueListenable: rating,
+                  builder: (_, value, _) => DropdownButtonFormField<int?>(
+                    initialValue: value,
+                    decoration: const InputDecoration(
+                      labelText: 'Personal rating',
+                    ),
+                    items: const [
+                      DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('Not rated'),
+                      ),
+                      DropdownMenuItem(value: 1, child: Text('1 star')),
+                      DropdownMenuItem(value: 2, child: Text('2 stars')),
+                      DropdownMenuItem(value: 3, child: Text('3 stars')),
+                      DropdownMenuItem(value: 4, child: Text('4 stars')),
+                      DropdownMenuItem(value: 5, child: Text('5 stars')),
+                    ],
+                    onChanged: (v) => rating.value = v,
+                  ),
+                ),
+                TextField(
+                  controller: review,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Personal review',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (formKey.currentState!.validate()) {
+              Navigator.pop(dialogContext, true);
+            }
+          },
+          child: const Text('Save place'),
+        ),
+      ],
+    ),
+  );
+  if (result == true && context.mounted) {
+    try {
+      await ref
+          .read(placesRepositoryProvider)
+          .savePlace(
+            id: place?.id,
+            name: name.text,
+            category: category.text,
+            address: address.text,
+            mapUrl: mapUrl.text,
+            latitude: place?.latitude,
+            longitude: place?.longitude,
+            notes: notes.text,
+            plannedAt: state.value.planned,
+            status: state.value.status,
+            rating: rating.value,
+            review: review.text,
+            visitedAt: state.value.visited,
+          );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not save place: $error')));
+      }
+    }
+  }
+  for (final controller in [name, category, address, mapUrl, notes, review]) {
+    controller.dispose();
+  }
+  rating.dispose();
+  state.dispose();
+}

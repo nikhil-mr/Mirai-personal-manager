@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../theme/app_colors.dart';
+import '../../features/groceries/presentation/groceries_screen.dart';
 import '../../features/money/presentation/money_workflows.dart';
+import '../../features/places/presentation/places_screen.dart';
 import '../../features/todos/presentation/todos_screen.dart';
 import 'app_routes.dart';
 
@@ -53,7 +55,7 @@ class _QuickAddSheet extends StatelessWidget {
         Icons.place_rounded,
         const Color(0xFF843CFF),
         const Color(0xFF350078),
-        (context, ref) => _go(context, '${AppRoutes.places}?quickAdd=place'),
+        (context, ref) => _openAddPlace(context, ref),
       ),
       _QuickAddAction(
         'Item',
@@ -61,7 +63,7 @@ class _QuickAddSheet extends StatelessWidget {
         Icons.inventory_2_rounded,
         const Color(0xFF00BFF3),
         const Color(0xFF0057B8),
-        (context, ref) => _go(context, '${AppRoutes.groceries}?quickAdd=item'),
+        (context, ref) => _openAddItem(context, ref),
       ),
     ];
 
@@ -257,6 +259,26 @@ class _QuickAddAction {
 Future<void> _openTransaction(BuildContext context) async {
   await Navigator.of(context)
       .push(MaterialPageRoute(builder: (_) => const TransactionFormScreen()));
+}
+
+Future<void> _openAddPlace(BuildContext context, WidgetRef ref) async {
+  if (!context.mounted) return;
+  context.go(AppRoutes.places);
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (context.mounted) {
+      showAddOrEditPlaceForm(context, ref);
+    }
+  });
+}
+
+Future<void> _openAddItem(BuildContext context, WidgetRef ref) async {
+  if (!context.mounted) return;
+  context.go(AppRoutes.groceries);
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (context.mounted) {
+      showAddOrEditItemForm(context, ref);
+    }
+  });
 }
 
 Future<void> _go(BuildContext context, String route) async {
