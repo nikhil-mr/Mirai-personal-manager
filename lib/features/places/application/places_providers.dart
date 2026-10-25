@@ -15,3 +15,9 @@ final savedPlacesProvider = StreamProvider<List<SavedPlace>>(
 final tripsProvider = StreamProvider<List<TravelTrip>>(
   (ref) => ref.watch(placesRepositoryProvider).watchTrips(),
 );
+
+final placeCategoriesProvider = StreamProvider<List<PlaceCategory>>((ref) {
+  final repo = ref.watch(placesRepositoryProvider);
+  repo.seedDefaultCategories();
+  return repo.watchCategories();
+});

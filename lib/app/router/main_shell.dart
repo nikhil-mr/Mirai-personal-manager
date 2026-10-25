@@ -2,50 +2,73 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/places/application/share_intent_service.dart';
+import '../../features/places/presentation/places_screen.dart';
 import '../../features/today/application/dashboard_providers.dart';
 import '../theme/app_colors.dart';
 import 'app_routes.dart';
 import 'quick_add_sheet.dart';
 
-class MainShell extends ConsumerWidget {
+const _destinations = [
+  _Destination(
+    label: 'Home',
+    icon: Icons.home_outlined,
+    selectedIcon: Icons.home_rounded,
+  ),
+  _Destination(
+    label: 'Money',
+    icon: Icons.account_balance_wallet_outlined,
+    selectedIcon: Icons.account_balance_wallet_rounded,
+  ),
+  _Destination(
+    label: 'To-do',
+    icon: Icons.checklist_outlined,
+    selectedIcon: Icons.checklist_rounded,
+  ),
+  _Destination(
+    label: 'Places',
+    icon: Icons.explore_outlined,
+    selectedIcon: Icons.explore_rounded,
+  ),
+  _Destination(
+    label: 'Inventory',
+    icon: Icons.inventory_2_outlined,
+    selectedIcon: Icons.inventory_2_rounded,
+  ),
+];
+
+class MainShell extends ConsumerStatefulWidget {
   const MainShell({required this.navigationShell, super.key});
   final StatefulNavigationShell navigationShell;
 
-  static const _destinations = [
-    _Destination(
-      label: 'Home',
-      icon: Icons.home_outlined,
-      selectedIcon: Icons.home_rounded,
-    ),
-    _Destination(
-      label: 'Money',
-      icon: Icons.account_balance_wallet_outlined,
-      selectedIcon: Icons.account_balance_wallet_rounded,
-    ),
-    _Destination(
-      label: 'To-do',
-      icon: Icons.checklist_outlined,
-      selectedIcon: Icons.checklist_rounded,
-    ),
-    _Destination(
-      label: 'Places',
-      icon: Icons.explore_outlined,
-      selectedIcon: Icons.explore_rounded,
-    ),
-    _Destination(
-      label: 'Inventory',
-      icon: Icons.inventory_2_outlined,
-      selectedIcon: Icons.inventory_2_rounded,
-    ),
-  ];
+  @override
+  ConsumerState<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends ConsumerState<MainShell> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ShareIntentService.initialize(ref, (name, link) {
+        if (!mounted) return;
+        widget.navigationShell.goBranch(3); // Places tab
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            showAddOrEditPlaceForm(context, ref, null, name, link);
+          }
+        });
+      });
+    });
+  }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => LayoutBuilder(
+  Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final wide = constraints.maxWidth >= 760;
       void onDestinationSelected(int index) {
         if (index == 0) ref.invalidate(todayDashboardSnapshotProvider);
-        navigationShell.goBranch(index);
+        widget.navigationShell.goBranch(index);
       }
 
       const double navBarHeight = 68.0;
@@ -101,12 +124,12 @@ class MainShell extends ConsumerWidget {
                 ],
               ),
             ),
-            body: navigationShell,
+            body: widget.navigationShell,
             bottomNavigationBar: wide
                 ? null
                 : _MiraiBottomNavigationBar(
                     height: navBarHeight,
-                    selectedIndex: navigationShell.currentIndex,
+                    selectedIndex: widget.navigationShell.currentIndex,
                     onDestinationSelected: onDestinationSelected,
                   ),
           ),
@@ -129,7 +152,7 @@ class MainShell extends ConsumerWidget {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(14, 20, 8, 14),
                 child: NavigationRail(
-                  selectedIndex: navigationShell.currentIndex,
+                  selectedIndex: widget.navigationShell.currentIndex,
                   onDestinationSelected: onDestinationSelected,
                   labelType: NavigationRailLabelType.all,
                   leading: Padding(
@@ -145,13 +168,16 @@ class MainShell extends ConsumerWidget {
                         child: Image.asset(
                           'assets/jpg(9)',
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(
-                            color: Theme.of(context).colorScheme.primaryContainer,
-                            child: Icon(
-                              Icons.spa_rounded,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer,
+                                child: Icon(
+                                  Icons.spa_rounded,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ),
                         ),
                       ),
                     ),
@@ -214,14 +240,10 @@ class _MiraiBottomNavigationBar extends StatelessWidget {
           height: height,
           child: Row(
             children: [
-              for (
-                var index = 0;
-                index < MainShell._destinations.length;
-                index++
-              )
+              for (var index = 0; index < _destinations.length; index++)
                 Expanded(
                   child: _NavigationItem(
-                    destination: MainShell._destinations[index],
+                    destination: _destinations[index],
                     selected: selectedIndex == index,
                     onTap: () => onDestinationSelected(index),
                   ),

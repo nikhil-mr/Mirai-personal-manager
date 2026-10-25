@@ -44,9 +44,168 @@ class PlacesRepository {
     return results;
   }
 
-  Future<List<String>> categories() async {
-    final all = await places();
-    return all.map((p) => p.category).toSet().toList()..sort();
+  Future<void> seedDefaultCategories() async {
+    final existing = await db.select(db.placeCategories).get();
+    if (existing.isNotEmpty) return;
+
+    final now = DateTime.now();
+    final defaults = [
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_food_stop',
+        name: 'Food stop',
+        iconCodePoint: 0xe25a, // Icons.local_dining_outlined
+        colorValue: 0xFFFFD0AE,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_cafe',
+        name: 'Cafe',
+        iconCodePoint: 0xe395, // Icons.local_cafe_outlined
+        colorValue: 0xFFFFF2CC,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_restaurant',
+        name: 'Restaurant',
+        iconCodePoint: 0xe532, // Icons.restaurant_outlined
+        colorValue: 0xFFAEEBDD,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_nature',
+        name: 'Nature',
+        iconCodePoint: 0xe471, // Icons.park_outlined
+        colorValue: 0xFFB5E8D4,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_stay',
+        name: 'Stay',
+        iconCodePoint: 0xe318, // Icons.hotel_outlined
+        colorValue: 0xFFBFE0FF,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_shopping',
+        name: 'Shopping',
+        iconCodePoint: 0xe59c, // Icons.shopping_bag_outlined
+        colorValue: 0xFFFFC5D8,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_work',
+        name: 'Work',
+        iconCodePoint: 0xe6f5, // Icons.work_outline
+        colorValue: 0xFFC9D4FF,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_temple',
+        name: 'Temple',
+        iconCodePoint: 0xf01da, // Icons.temple_hindu_outlined
+        colorValue: 0xFFE5C9FF,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+      PlaceCategoriesCompanion.insert(
+        id: 'cat_other',
+        name: 'Other',
+        iconCodePoint: 0xe4c6, // Icons.place_outlined
+        colorValue: 0xFFD7DEDE,
+        isDefault: const Value(true),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+
+    await db.batch((batch) {
+      batch.insertAll(db.placeCategories, defaults);
+    });
+  }
+
+  Stream<List<PlaceCategory>> watchCategories() {
+    return (db.select(
+      db.placeCategories,
+    )..orderBy([(c) => OrderingTerm.asc(c.name)])).watch();
+  }
+
+  Future<List<PlaceCategory>> categoriesList() {
+    return (db.select(
+      db.placeCategories,
+    )..orderBy([(c) => OrderingTerm.asc(c.name)])).get();
+  }
+
+  Future<void> saveCategory({
+    String? id,
+    required String name,
+    required int iconCodePoint,
+    required int colorValue,
+  }) async {
+    final cleanName = name.trim();
+    if (cleanName.isEmpty || cleanName.length > 80) {
+      throw ArgumentError('Enter a category name between 1 and 80 characters.');
+    }
+
+    final all = await categoriesList();
+    final duplicate = all.where(
+      (c) => c.id != id && c.name.toLowerCase() == cleanName.toLowerCase(),
+    );
+    if (duplicate.isNotEmpty) {
+      throw ArgumentError('A category with that name already exists.');
+    }
+
+    final now = DateTime.now();
+    final categoryId = id ?? _uuid.v4();
+    await db
+        .into(db.placeCategories)
+        .insertOnConflictUpdate(
+          PlaceCategoriesCompanion(
+            id: Value(categoryId),
+            name: Value(cleanName),
+            iconCodePoint: Value(iconCodePoint),
+            colorValue: Value(colorValue),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
+  }
+
+  Future<void> deleteCategory(
+    String id, {
+    String? reassignToCategoryName,
+  }) async {
+    final cat = await (db.select(
+      db.placeCategories,
+    )..where((c) => c.id.equals(id))).getSingleOrNull();
+    if (cat == null) return;
+
+    await db.transaction(() async {
+      final targetCategoryName = (reassignToCategoryName ?? 'Other').trim();
+      await (db.update(
+        db.savedPlaces,
+      )..where((p) => p.category.equals(cat.name))).write(
+        SavedPlacesCompanion(
+          category: Value(targetCategoryName),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await (db.delete(db.placeCategories)..where((c) => c.id.equals(id))).go();
+    });
   }
 
   Future<void> savePlace({

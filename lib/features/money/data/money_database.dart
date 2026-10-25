@@ -346,6 +346,19 @@ class HomeInventoryItems extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+class PlaceCategories extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text().withLength(min: 1, max: 80)();
+  IntColumn get iconCodePoint => integer()();
+  IntColumn get colorValue => integer()();
+  BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     MoneyAccounts,
@@ -367,6 +380,7 @@ class HomeInventoryItems extends Table {
     GroceryPurchaseItems,
     HomeInventoryItems,
     InventoryCategories,
+    PlaceCategories,
   ],
 )
 class MoneyDatabase extends _$MoneyDatabase {
@@ -383,7 +397,7 @@ class MoneyDatabase extends _$MoneyDatabase {
   );
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -442,15 +456,12 @@ class MoneyDatabase extends _$MoneyDatabase {
             homeInventoryItems,
             homeInventoryItems.iconCodePoint,
           );
-          await m.addColumn(
-            homeInventoryItems,
-            homeInventoryItems.colorValue,
-          );
-          await m.addColumn(
-            homeInventoryItems,
-            homeInventoryItems.categoryId,
-          );
+          await m.addColumn(homeInventoryItems, homeInventoryItems.colorValue);
+          await m.addColumn(homeInventoryItems, homeInventoryItems.categoryId);
         } catch (_) {}
+      }
+      if (from < 11) {
+        await m.createTable(placeCategories);
       }
     },
     beforeOpen: (details) async {
